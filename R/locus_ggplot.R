@@ -37,9 +37,8 @@
 #' @param labels Character vector of SNP or genomic feature IDs to label. The
 #'   value "index" selects the highest point or index SNP as defined when
 #'   [locus()] is called. Set to `NULL` to remove all labels.
-#' @param ggrepel_args List of arguments to pass to `geom_text_repel` to configure label drawing
 #' @param ... Additional arguments passed to [gg_genetracks()] to control
-#'   colours of gene tracks etc.
+#'   colours of gene tracks and [geom_text_repel()] to control labels etc.
 #' @return Returns a ggplot2 plot containing a scatter plot with genetracks
 #'   underneath.
 #' @seealso [gg_scatter()] [gg_genetracks()]
@@ -51,6 +50,7 @@
 #' locus_ggplot(loc)
 #' }
 #' @importFrom cowplot plot_grid
+#' @importFrom ggrepel geom_text_repel
 #' @export
 
 locus_ggplot <- function(loc, heights = c(3, 2),
@@ -70,11 +70,12 @@ locus_ggplot <- function(loc, heights = c(3, 2),
                          recomb_col = "blue",
                          legend_pos = 'topleft',
                          labels = NULL,
-                         ggrepel_args = list(),
                          ...) {
+  dots <- list(...)
   if (!inherits(loc, "locus")) stop("Object of class 'locus' required")
   if (is.null(loc$data)) stop("No data points, only gene tracks")
-  p <- gg_scatter(loc,
+
+  p <- do.call(gg_scatter, c(list(loc,
                   index_snp = index_snp,
                   pcutoff = pcutoff,
                   scheme = scheme,
@@ -89,12 +90,13 @@ locus_ggplot <- function(loc, heights = c(3, 2),
                   LD_scheme = LD_scheme,
                   recomb_col = recomb_col,
                   legend_pos = legend_pos,
-                  labels = labels,
-                  ggrepel_args = ggrepel_args)
-  g <- gg_genetracks(loc, xticks = (xticks != "top"),
+                  labels = labels), dots[names(dots) %in% names(formals(geom_text_repel))]))
+
+  g <- do.call(gg_genetracks, c(list(loc, xticks = (xticks != "top"),
                      border = border, xlab = xlab,
                      cex.axis = cex.axis,
-                     cex.lab = cex.lab, ...)
+                     cex.lab = cex.lab),
+                     dots[names(dots) %in% names(formals(gg_genetracks))]))
 
   plot_grid(p, g, nrow = 2, rel_heights = heights, align = "v")
 }
