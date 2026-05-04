@@ -38,3 +38,6 @@ vignettes/*.pdf
 rsconnect/
 inst/doc
 .Rproj.user
+
+# Local design docs
+docs/
