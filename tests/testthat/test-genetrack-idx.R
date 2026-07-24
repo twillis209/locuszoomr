@@ -47,6 +47,33 @@ test_that("resolve_genetrack_idx survives subplot axis renaming", {
   }
 })
 
+test_that("resolve_genetrack_idx selects shapes by yref, not xref", {
+  # Synthetic fixture: in the real IRF5 subplot fixture, every excluded shape
+  # happens to differ from the gene panel in BOTH xref and yref, so a buggy
+  # xref-based selector produces the same index set as a correct yref-based
+  # one there. This fixture decouples the two: the excluded shape shares the
+  # gene panel's xref but not its yref, so only a yref-based selector gets it
+  # right.
+  built <- list(x = list(
+    data = list(
+      list(meta = "locuszoomr_genetrack_lines", xaxis = "x", yaxis = "y2"),
+      list(meta = "locuszoomr_genetrack_labels", xaxis = "x", yaxis = "y2")
+    ),
+    layout = list(shapes = list(
+      # right x (matches gene panel), wrong y -> must be excluded
+      list(type = "rect", xref = "x", yref = "y"),
+      # exon shapes belonging to the gene panel -> must be included
+      list(type = "rect", xref = "x", yref = "y2"),
+      list(type = "rect", xref = "x", yref = "y2")
+    ))
+  ))
+  idx <- resolve_genetrack_idx(built)
+
+  expect_equal(idx$xaxis, "x")
+  expect_equal(idx$yaxis, "y2")
+  expect_equal(idx$shapeIdx, c(1L, 2L))
+})
+
 test_that("resolve_genetrack_idx errors when the gene track is absent", {
   p <- plotly::plot_ly(x = 1:3, y = 1:3, type = "scatter", mode = "markers")
   expect_error(resolve_genetrack_idx(plotly::plotly_build(p)),
