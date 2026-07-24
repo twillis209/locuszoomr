@@ -1,6 +1,16 @@
 News
 =====
 
+# locuszoomr 0.3.10
+
+### New features
+* Gene tracks in `locus_plotly()` and `genetrack_ly()` now re-pack themselves in
+the browser as you zoom or pan, so rows are reused and gene labels stay visible
+at the edges of the view. Set `dynamic = FALSE` to restore the previous static
+behaviour, for example when exporting to a static image.
+* The gene track now reports how many genes are hidden by `maxrows` directly on
+the plot instead of only in a console message.
+
 # locuszoomr 0.3.9
 ###### 27/03/2026
 * Added `prioritise` argument to allow users to place important genes first in 

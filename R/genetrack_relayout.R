@@ -129,6 +129,8 @@ add_genetrack_relayout <- function(p, TX, EX, cfg) {
   built <- plotly::plotly_build(p)
   if (is.null(cfg$showExons)) cfg$showExons <- TRUE
   if (is.null(cfg$geneCol)) cfg$geneCol <- col2hex("skyblue")
+  if (is.null(cfg$exonCol)) cfg$exonCol <- col2hex("blue4")
+  if (is.null(cfg$exonBorder)) cfg$exonBorder <- col2hex("blue4")
   payload <- genetrack_payload(TX, EX, cfg)
   payload$idx <- resolve_genetrack_idx(built)
 
@@ -140,4 +142,27 @@ add_genetrack_relayout <- function(p, TX, EX, cfg) {
     built,
     sprintf("function(el, x, data) {\n%s\nLZR.attach(el, data);\n}", js),
     data = payload)
+}
+
+
+#' Assemble the render settings passed to the client
+#'
+#' @param italics Logical, whether gene names are italicised.
+#' @param cex.text Font size multiplier.
+#' @param maxrows Resolved row capacity of the panel.
+#' @param showExons Logical, whether exons are drawn individually.
+#' @param gene_col,exon_col,exon_border Colours.
+#' @return A named list.
+#' @noRd
+genetrack_cfg <- function(italics, cex.text, maxrows, showExons, gene_col,
+                          exon_col, exon_border) {
+  list(italics    = italics,
+       fontSizePx = 14 * cex.text,
+       maxrows    = maxrows,
+       showExons  = showExons,
+       gapFrac    = 0.02,
+       textPos    = "top",
+       geneCol    = gene_col,
+       exonCol    = exon_col,
+       exonBorder = exon_border)
 }

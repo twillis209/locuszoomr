@@ -31,6 +31,9 @@
 #' @param height Height in pixels (optional, defaults to automatic sizing).
 #' @param plot Logical whether to produce plotly object or return plot
 #'   coordinates.
+#' @param dynamic Logical whether to re-pack the gene tracks in the browser as
+#'   the user zooms or pans. Requires JavaScript, so set to `FALSE` when
+#'   exporting to a static image.
 #' @return Either a 'plotly' plotting object showing gene tracks, or if 
 #'   `plot = FALSE` a list containing `TX`, a dataframe of coordinates for
 #'   gene transcripts, and `EX`, a dataframe of coordinates for exons.
@@ -59,7 +62,8 @@ genetrack_ly <- function(locus,
                          prioritise = NULL,
                          blanks = c("fill", "hide", "show"),
                          height = NULL,
-                         plot = TRUE) {
+                         plot = TRUE,
+                         dynamic = TRUE) {
   if (!inherits(locus, "locus")) stop("Object of class 'locus' required")
   blanks <- match.arg(blanks)
   TX <- locus$TX
@@ -94,6 +98,10 @@ genetrack_ly <- function(locus,
                prioritise = prioritise)
   maxrows <- if (is.null(maxrows)) max(TX$row) else min(c(max(TX$row), maxrows))
   if (max(TX$row) > maxrows) message(max(TX$row), " tracks needed to show all genes")
+  # The browser re-packs against the viewport, so it must see genes that
+  # maxrows hides at full zoom — those are exactly the ones zooming reveals.
+  TX_all <- TX
+  EX_all <- EX[EX$gene_id %in% TX_all$gene_id, ]
   TX <- TX[TX$row <= maxrows, ]
   EX <- EX[EX$gene_id %in% TX$gene_id, ]
   
@@ -106,7 +114,10 @@ genetrack_ly <- function(locus,
   TX$tx <- rowMeans(TX[, c('start', 'end')])
   TX$ty <- -TX$row + 0.35
   TX[, c('start', 'end', 'tx')] <- TX[, c('start', 'end', 'tx')] / 1e6
-  
+
+  EX_all[, c('start', 'end')] <- EX_all[, c('start', 'end')] / 1e6
+  TX_all[, c('start', 'end')] <- TX_all[, c('start', 'end')] / 1e6
+
   tfilter <- TX$tmin > (xrange[1] - diff(xrange) * 0.005) & 
              (TX$tmax < xrange[2] + diff(xrange) * 0.005) &
              TX$gene_name != ""
@@ -141,7 +152,7 @@ genetrack_ly <- function(locus,
                       "<br>Biotype: ", TX$gene_biotype,
                       "<br>Start: ", TX$start * 1e6,
                       "<br>End: ", TX$end * 1e6)
-  plot_ly(TX, source = "plotly_locus", height = height) %>%
+  p <- plot_ly(TX, source = "plotly_locus", height = height) %>%
     add_segments(x = ~start, y = ~-row,
                  xend = ~end, yend = ~-row,
                  color = I(gene_col),
@@ -158,13 +169,22 @@ genetrack_ly <- function(locus,
                                 color = 'black', ticklen = 5,
                                 range = as.list(xlim)),
                    yaxis = list(title = "", showgrid = FALSE, zeroline = FALSE,
-                                fixedrange = TRUE,
-                                showticklabels = FALSE),
+                                fixedrange = TRUE, showticklabels = FALSE,
+                                range = c(-(maxrows + 0.6), -0.2)),
                    showlegend = TRUE, dragmode = "pan") %>%
     plotly::config(displaylogo = FALSE,
                    modeBarButtonsToRemove = c("select2d", "lasso2d",
                                               "autoScale2d", "resetScale2d",
                                               "hoverClosest", "hoverCompare"))
+
+  # Carried so locus_plotly() can build the payload after subplot() without
+  # re-running the whole gene track preparation.
+  cfg <- genetrack_cfg(italics, cex.text, maxrows, showExons,
+                       gene_col, exon_col, exon_border)
+  attr(p, "genetrack_data") <- list(TX = TX_all, EX = EX_all, cfg = cfg)
+
+  if (!dynamic) return(p)
+  add_genetrack_relayout(p, TX_all, EX_all, cfg)
 }
 
 

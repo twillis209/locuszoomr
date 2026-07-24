@@ -20,6 +20,7 @@ locus_plotly(
   xlab = NULL,
   prioritise = NULL,
   blanks = "show",
+  dynamic = TRUE,
   ...
 )
 }
@@ -66,6 +67,10 @@ in \code{locus}.}
 blank gene symbols with ensembl gene ids. \code{"hide"} completely hides genes
 which are missing gene symbols. \code{"show"} shows gene lines but no label
 (hovertext is still available).}
+
+\item{dynamic}{Logical whether to re-pack the gene tracks in the browser as
+the user zooms or pans. Requires JavaScript, so set to \code{FALSE} when
+exporting to a static image.}
 
 \item{...}{Optional arguments passed to \code{\link[=scatter_plotly]{scatter_plotly()}} to control the
 scatter plot.}

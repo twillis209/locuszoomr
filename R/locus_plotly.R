@@ -38,6 +38,9 @@
 #'   blank gene symbols with ensembl gene ids. `"hide"` completely hides genes
 #'   which are missing gene symbols. `"show"` shows gene lines but no label
 #'   (hovertext is still available).
+#' @param dynamic Logical whether to re-pack the gene tracks in the browser as
+#'   the user zooms or pans. Requires JavaScript, so set to `FALSE` when
+#'   exporting to a static image.
 #' @param ... Optional arguments passed to [scatter_plotly()] to control the
 #'   scatter plot.
 #' @returns A 'plotly' plotting object showing a scatter plot above gene tracks.
@@ -65,6 +68,7 @@ locus_plotly <- function(loc, heights = c(0.6, 0.4),
                          xlab = NULL,
                          prioritise = NULL,
                          blanks = "show",
+                         dynamic = TRUE,
                          ...) {
   pheights <- NULL
   if (any(heights > 1)) {
@@ -73,12 +77,18 @@ locus_plotly <- function(loc, heights = c(0.6, 0.4),
     heights <- heights / sum(heights)
   }
   
-  g <- genetrack_ly(loc, filter_gene_name, filter_gene_biotype, cex.text, 
-                    italics, gene_col, exon_col, exon_border, showExons, 
+  g <- genetrack_ly(loc, filter_gene_name, filter_gene_biotype, cex.text,
+                    italics, gene_col, exon_col, exon_border, showExons,
                     maxrows, width, xlab, prioritise, blanks,
-                    height = pheights[2])
+                    height = pheights[2], dynamic = FALSE)
   p <- scatter_plotly(loc, xlab = xlab, height = pheights[1], ...)
-  
-  plotly::subplot(p, g, shareX = TRUE, nrows = 2, heights = heights,
-                  titleY = TRUE, margin = 0)
+
+  gt <- attr(g, "genetrack_data")
+
+  sp <- plotly::subplot(p, g, shareX = TRUE, nrows = 2, heights = heights,
+                        titleY = TRUE, margin = 0)
+
+  if (!dynamic || is.null(gt)) return(sp)
+
+  add_genetrack_relayout(sp, gt$TX, gt$EX, gt$cfg)
 }

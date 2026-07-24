@@ -20,7 +20,8 @@ genetrack_ly(
   prioritise = NULL,
   blanks = c("fill", "hide", "show"),
   height = NULL,
-  plot = TRUE
+  plot = TRUE,
+  dynamic = TRUE
 )
 }
 \arguments{
@@ -67,6 +68,10 @@ which are missing gene symbols. \code{"show"} shows gene lines but no label
 
 \item{plot}{Logical whether to produce plotly object or return plot
 coordinates.}
+
+\item{dynamic}{Logical whether to re-pack the gene tracks in the browser as
+the user zooms or pans. Requires JavaScript, so set to \code{FALSE} when
+exporting to a static image.}
 }
 \value{
 Either a 'plotly' plotting object showing gene tracks, or if
