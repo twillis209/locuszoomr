@@ -21,8 +21,7 @@ test_that("the JavaScript packer agrees with the R packer on every fixture", {
     simplifyDataFrame = FALSE
   )
 
-  harness <- normalizePath(file.path("..", "..", "dev", "packer-parity.js"),
-                           mustWork = FALSE)
+  harness <- testthat::test_path("packer-parity.js")
   skip_if(!file.exists(harness), "parity harness not available")
 
   js <- jsonlite::fromJSON(system2(node, harness, stdout = TRUE),
