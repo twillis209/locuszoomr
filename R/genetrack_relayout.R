@@ -92,3 +92,29 @@ resolve_genetrack_idx <- function(built) {
        xaxis      = xax,
        yaxis      = yax)
 }
+
+
+#' Attach the client-side re-layout handler to a plotly object
+#'
+#' @param p A plotly object. It is built internally so trace and shape indices
+#'   can be resolved.
+#' @param TX,EX Transcript and exon data frames in Mb, `TX` already ordered by
+#'   [mapRow()].
+#' @param cfg Named list of render settings.
+#' @return The built plotly object with an `onRender` handler attached.
+#' @importFrom htmlwidgets onRender
+#' @noRd
+add_genetrack_relayout <- function(p, TX, EX, cfg) {
+  built <- plotly::plotly_build(p)
+  payload <- genetrack_payload(TX, EX, cfg)
+  payload$idx <- resolve_genetrack_idx(built)
+
+  js <- paste(readLines(
+    system.file("js", "genetrack-relayout.js", package = "locuszoomr"),
+    warn = FALSE), collapse = "\n")
+
+  htmlwidgets::onRender(
+    built,
+    sprintf("function(el, x, data) {\n%s\nLZR.attach(el, data);\n}", js),
+    data = payload)
+}
