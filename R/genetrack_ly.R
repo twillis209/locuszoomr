@@ -146,9 +146,11 @@ genetrack_ly <- function(locus,
                  xend = ~end, yend = ~-row,
                  color = I(gene_col),
                  text = hovertext, hoverinfo = 'text',
+                 meta = "locuszoomr_genetrack_lines",
                  showlegend = FALSE) %>%
     add_text(x = TX$tx[ok], y = TX$ty[ok], text = TX$gene_name2[ok],
              textfont = list(size = 14 * cex.text),
+             meta = "locuszoomr_genetrack_labels",
              showlegend = FALSE, hoverinfo = 'none') %>%
     plotly::layout(shapes = shapes,
                    xaxis = list(title = xlab, showgrid = FALSE, showline = TRUE,
