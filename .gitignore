@@ -41,3 +41,6 @@ inst/doc
 
 # Local design docs
 docs/
+
+# Local scratch / preview output
+dev/

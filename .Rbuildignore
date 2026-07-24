@@ -5,3 +5,5 @@
 ^CRAN-RELEASE$
 
 ^CRAN-SUBMISSION$
+^docs$
+^dev$
