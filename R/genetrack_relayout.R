@@ -12,7 +12,10 @@
 #' @param EX Data frame of exons with `gene_id`, `start`, `end` in Mb.
 #' @param cfg Named list of render settings. `italics` is required; the caller
 #'   adds the remaining display settings.
-#' @return A list with elements `tx`, `ex` and `cfg`.
+#' @return A list with elements `tx`, `ex` and `cfg`. `tx$hover` carries the
+#'   per-gene hover string in the same format as [genetrack_ly()]'s line
+#'   trace, so the JS re-layout handler can keep the line trace's `text`
+#'   array in sync with its `x`/`y` arrays after a re-pack.
 #' @noRd
 genetrack_payload <- function(TX, EX, cfg) {
   nm <- TX$gene_name
@@ -21,10 +24,20 @@ genetrack_payload <- function(TX, EX, cfg) {
   label <- ifelse(pos, paste0(nm, "&#8594;"), paste0("&#8592;", nm))
   label[TX$gene_name == ""] <- ""
 
+  # Matches the hovertext built in genetrack_ly() (R/genetrack_ly.R:138-143)
+  # exactly, including that TX$fullname contributes nothing when absent.
+  hover <- paste0(TX$gene_name,
+                   TX$fullname,
+                   "<br>Gene ID: ", TX$gene_id,
+                   "<br>Biotype: ", TX$gene_biotype,
+                   "<br>Start: ", TX$start * 1e6,
+                   "<br>End: ", TX$end * 1e6)
+
   tx <- data.frame(
     id       = as.character(TX$gene_id),
     name     = as.character(TX$gene_name),
     label    = label,
+    hover    = hover,
     start    = as.numeric(TX$start),
     end      = as.numeric(TX$end),
     strand   = as.character(TX$strand),
@@ -86,9 +99,13 @@ resolve_genetrack_idx <- function(built) {
     which(vapply(shapes, function(s) identical(s$yref, yax), logical(1)))
   }
 
+  # I() forces jsonlite/htmlwidgets to serialise shapeIdx as a JSON array even
+  # when it has exactly one element or zero elements; without it auto_unbox
+  # collapses a length-1 integer vector to a bare number, which breaks the JS
+  # side's `.indexOf()` call (TypeError: idxs.indexOf is not a function).
   list(lineTrace  = as.integer(li - 1L),
        labelTrace = as.integer(ti - 1L),
-       shapeIdx   = as.integer(shp - 1L),
+       shapeIdx   = I(as.integer(shp - 1L)),
        xaxis      = xax,
        yaxis      = yax)
 }
@@ -100,12 +117,14 @@ resolve_genetrack_idx <- function(built) {
 #'   can be resolved.
 #' @param TX,EX Transcript and exon data frames in Mb, `TX` already ordered by
 #'   [mapRow()].
-#' @param cfg Named list of render settings.
+#' @param cfg Named list of render settings. `showExons` is optional here and
+#'   defaults to `TRUE`; Task 5 wires the real value through from the caller.
 #' @return The built plotly object with an `onRender` handler attached.
 #' @importFrom htmlwidgets onRender
 #' @noRd
 add_genetrack_relayout <- function(p, TX, EX, cfg) {
   built <- plotly::plotly_build(p)
+  if (is.null(cfg$showExons)) cfg$showExons <- TRUE
   payload <- genetrack_payload(TX, EX, cfg)
   payload$idx <- resolve_genetrack_idx(built)
 
