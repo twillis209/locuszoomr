@@ -108,8 +108,11 @@
        * array as base.concat(exons), so stored indices never go stale.
        * shapeIdx serialises as a bare number, not a length-1 array, when the
        * gene panel has exactly one shape (jsonlite auto_unbox); normalise to
-       * an array before relying on .indexOf(). */
-      var idxs = [].concat(P.idx.shapeIdx || []);
+       * an array before relying on .indexOf(). Use `== null` rather than
+       * `||` here: 0 is a valid (and the most common) shape index, and 0 is
+       * falsy, so `P.idx.shapeIdx || []` would silently discard exactly the
+       * single-shape-at-index-0 case this normalisation exists for. */
+      var idxs = [].concat(P.idx.shapeIdx == null ? [] : P.idx.shapeIdx);
       var all = (gd.layout.shapes || []);
       var base = [];
       for (var i = 0; i < all.length; i++) {
@@ -117,7 +120,29 @@
       }
       var baseAnn = (gd.layout.annotations || []).slice();
 
-      var busy = false, timer = null, pending = false, lastRange = null;
+      var busy = false, timer = null, pending = false, lastKey = null;
+
+      /* Plotly.relayout(gd, {shapes: ..., annotations: ...}) inside apply()
+       * below re-emits 'plotly_relayout' on this same gd from inside its own
+       * .then() chain, while `busy` is still true. That self-event now takes
+       * the `pending` path (see the listener below) rather than being
+       * dropped outright, so *something* has to stop it from re-triggering
+       * apply() forever. This function is that something: it recognises an
+       * event as self-emitted, structurally, by checking that every key on
+       * the update object is one we ourselves write. Do not rely on the
+       * no-op range/length guard inside apply() for this instead — that
+       * guard exists for a different, unrelated reason (see the comment at
+       * its call site) and is not a safe substitute: relaxing or removing it
+       * must not be able to reopen this loop. */
+      function isSelfUpdate(upd) {
+        if (!upd) return false;
+        var keys = Object.keys(upd);
+        if (keys.length === 0) return false;
+        for (var k = 0; k < keys.length; k++) {
+          if (keys[k] !== 'shapes' && keys[k] !== 'annotations') return false;
+        }
+        return true;
+      }
 
       function schedule() {
         if (timer) global.clearTimeout(timer);
@@ -129,15 +154,24 @@
       function apply() {
         var ax = gd._fullLayout[xkey];
         var rng = ax.range;
-        /* No-op guard: dragmode toggles, resizes and legend clicks all fire
-         * plotly_relayout without changing the x range. Skip the re-pack (and
-         * the label-suppression recompute that goes with it) when the range
-         * is unchanged, so those events are visually silent. */
-        if (lastRange !== null && rng[0] === lastRange[0] && rng[1] === lastRange[1]) {
+        var len = ax._length;
+        /* No-op guard: dragmode toggles and legend clicks fire
+         * plotly_relayout without changing the x range or the axis's
+         * rendered pixel length, so skip the re-pack in that case. A window
+         * resize is NOT such a no-op: it changes `ax._length` while leaving
+         * `rng` unchanged, and pxPerData (hence every label-width
+         * calculation below) is derived from `_length`, so the cache key
+         * must include it too, not just the range. This guard is purely a
+         * performance/cosmetic optimisation — it is NOT what stops the
+         * self-triggered update loop described above; that termination is
+         * structural, via isSelfUpdate() on the listener, and must keep
+         * working even if this guard is later relaxed or removed. */
+        if (lastKey !== null &&
+            rng[0] === lastKey[0] && rng[1] === lastKey[1] && len === lastKey[2]) {
           return;
         }
-        lastRange = [rng[0], rng[1]];
-        var pxPerData = ax._length / (rng[1] - rng[0]);
+        lastKey = [rng[0], rng[1], len];
+        var pxPerData = len / (rng[1] - rng[0]);
         var res = LZR.layout(P, rng[0], rng[1], pxPerData);
 
         var lx = [], ly = [], lt = [], tx = [], ty = [], tt = [];
@@ -198,18 +232,29 @@
           })
           .then(function () {
             busy = false;
-            /* A relayout arrived while this apply() was in flight; the
-             * three-restyle chain takes long enough (150-300ms on a dense
-             * locus) that a dragmode="pan" user can easily pan again before
-             * it settles. Re-run once more against the now-current range
-             * instead of leaving the panel packed for the stale window. */
+            /* A *genuine* relayout (not our own Plotly.relayout(shapes/
+             * annotations) call above, which the listener below already
+             * filters out via isSelfUpdate before pending is ever set) can
+             * arrive while this apply() was in flight; the three-restyle
+             * chain takes long enough (150-300ms on a dense locus) that a
+             * dragmode="pan" user can easily pan again before it settles.
+             * Re-run once more against the now-current range instead of
+             * leaving the panel packed for the stale window. This does NOT
+             * on its own risk an infinite loop: Plotly.relayout's own
+             * self-emitted event is excluded upstream by isSelfUpdate(), so
+             * `pending` only ever becomes true for a real user-driven event. */
             if (pending) { pending = false; schedule(); }
           })
           .catch(function (err) { busy = false; fail(err); });
       }
 
-      gd.on('plotly_relayout', function () {
+      gd.on('plotly_relayout', function (upd) {
         if (dead) return;
+        /* Structural loop-breaker for the self-triggering update described
+         * above isSelfUpdate()'s definition: without this, our own
+         * Plotly.relayout({shapes, annotations}) call would re-enter here
+         * via `pending`/schedule() and run forever. */
+        if (isSelfUpdate(upd)) return;
         if (busy) { pending = true; return; }
         schedule();
       });

@@ -79,3 +79,38 @@ test_that("resolve_genetrack_idx errors when the gene track is absent", {
   expect_error(resolve_genetrack_idx(plotly::plotly_build(p)),
                "gene track traces")
 })
+
+test_that("resolve_genetrack_idx's shapeIdx serialises as a JSON array even with one shape", {
+  # This is the CRITICAL 3 regression from Task 4 fix round 1: jsonlite's
+  # auto_unbox (used throughout the htmlwidgets/plotly serialisation
+  # pipeline) collapses a length-1 integer vector to a bare JSON number
+  # unless it is wrapped in I(). The JS side then calls `.indexOf()` on that
+  # bare number and throws.
+  #
+  # `expect_equal(idx$shapeIdx, c(1L))` would NOT catch a regression here:
+  # I()-wrapped and plain integer vectors compare equal under waldo (this
+  # repo's testthat 3e comparator), so a class-only assertion, or a value
+  # comparison against a plain vector, stays green whether or not I() is
+  # present. Assert on the actual serialised JSON instead, since that is
+  # what the JS handler receives.
+  built <- list(x = list(
+    data = list(
+      list(meta = "locuszoomr_genetrack_lines", xaxis = "x", yaxis = "y"),
+      list(meta = "locuszoomr_genetrack_labels", xaxis = "x", yaxis = "y")
+    ),
+    layout = list(shapes = list(
+      list(type = "rect", xref = "x", yref = "y")  # exactly one shape
+    ))
+  ))
+  idx <- resolve_genetrack_idx(built)
+  expect_equal(length(idx$shapeIdx), 1L)
+
+  to_JSON <- getFromNamespace("to_JSON", "plotly")
+  expect_equal(as.character(to_JSON(idx$shapeIdx)), "[0]")
+
+  # Negative control: proves the assertion above actually distinguishes the
+  # wrapped and unwrapped cases, rather than being vacuously true regardless
+  # of I(). Stripping AsIs reproduces the pre-fix bare-number bug.
+  unwrapped <- as.integer(idx$shapeIdx)
+  expect_equal(as.character(to_JSON(unwrapped)), "0")
+})

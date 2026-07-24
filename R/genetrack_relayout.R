@@ -117,14 +117,18 @@ resolve_genetrack_idx <- function(built) {
 #'   can be resolved.
 #' @param TX,EX Transcript and exon data frames in Mb, `TX` already ordered by
 #'   [mapRow()].
-#' @param cfg Named list of render settings. `showExons` is optional here and
-#'   defaults to `TRUE`; Task 5 wires the real value through from the caller.
+#' @param cfg Named list of render settings. `showExons` and `geneCol` are
+#'   optional here and default to `TRUE` and `col2hex("skyblue")`
+#'   respectively (matching [genetrack_ly()]'s own `gene_col` default for
+#'   `showExons = FALSE`); Task 5 wires the real values through from the
+#'   caller. `geneCol` is only read client-side when `showExons` is `FALSE`.
 #' @return The built plotly object with an `onRender` handler attached.
 #' @importFrom htmlwidgets onRender
 #' @noRd
 add_genetrack_relayout <- function(p, TX, EX, cfg) {
   built <- plotly::plotly_build(p)
   if (is.null(cfg$showExons)) cfg$showExons <- TRUE
+  if (is.null(cfg$geneCol)) cfg$geneCol <- col2hex("skyblue")
   payload <- genetrack_payload(TX, EX, cfg)
   payload$idx <- resolve_genetrack_idx(built)
 
