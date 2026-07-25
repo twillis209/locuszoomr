@@ -24,7 +24,15 @@ test_that("the JavaScript packer agrees with the R packer on every fixture", {
   harness <- testthat::test_path("packer-parity.js")
   skip_if(!file.exists(harness), "parity harness not available")
 
-  js <- jsonlite::fromJSON(system2(node, harness, stdout = TRUE),
+  # system.file() resolves correctly both in the source tree (under
+  # devtools::load_all()) and in an installed package, where inst/js is
+  # flattened to js/ — R CMD check runs tests against the installed copy, so
+  # a path built from inst/js literally (as the JS harness used to do)
+  # cannot find the file there.
+  relayout_js <- system.file("js", "genetrack-relayout.js", package = "locuszoomr")
+  skip_if(relayout_js == "", "genetrack-relayout.js not found via system.file()")
+
+  js <- jsonlite::fromJSON(system2(node, c(harness, relayout_js), stdout = TRUE),
                            simplifyDataFrame = FALSE)
 
   for (i in seq_along(cases)) {
