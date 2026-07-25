@@ -45,6 +45,54 @@ test_that("cfg on the genetrack_data attribute carries hex colours, not R colour
   expect_equal(cfg2$exonBorder, col2hex("red"))
 })
 
+test_that("the cfg embedded in the WIDGET (jsHooks$render data) is hexed on both entry points", {
+  skip_if_no_ensdb()
+  loc <- make_locus()
+
+  # genetrack_ly() hexes gene_col/exon_col/exon_border at R/genetrack_ly.R
+  # before building cfg, so the value reaching the widget is hex almost by
+  # construction. locus_plotly() is the entry point that could plausibly
+  # regress here: it has raw R colour names in scope (its own gene_col/
+  # exon_col/exon_border defaults/arguments) and could be tempted to build
+  # its own cfg from them instead of reusing genetrack_ly()'s already-hexed
+  # gt$cfg. Check the cfg actually shipped to the browser, not just the
+  # value returned by genetrack_ly(), for both entry points and for both
+  # showExons values, since geneCol is only read client-side when
+  # showExons = FALSE.
+  check_widget_cfg <- function(widget, expected_hex) {
+    cfg <- widget$jsHooks$render[[1]]$data$cfg
+    expect_match(cfg$geneCol, hex_re)
+    expect_match(cfg$exonCol, hex_re)
+    expect_match(cfg$exonBorder, hex_re)
+    expect_false(cfg$geneCol %in% c("blue4", "skyblue", "red"))
+    expect_false(cfg$exonCol %in% c("blue4", "red"))
+    expect_false(cfg$exonBorder %in% c("blue4", "red"))
+    expect_equal(cfg$geneCol, expected_hex)
+    expect_equal(cfg$exonCol, expected_hex)
+    expect_equal(cfg$exonBorder, expected_hex)
+  }
+
+  red <- col2hex("red")
+
+  g <- genetrack_ly(loc, gene_col = "red", exon_col = "red", exon_border = "red",
+                    dynamic = TRUE)
+  check_widget_cfg(g, red)
+
+  g_noexons <- genetrack_ly(loc, gene_col = "red", exon_col = "red",
+                            exon_border = "red", showExons = FALSE,
+                            dynamic = TRUE)
+  check_widget_cfg(g_noexons, red)
+
+  p <- locus_plotly(loc, gene_col = "red", exon_col = "red", exon_border = "red",
+                    dynamic = TRUE)
+  check_widget_cfg(p, red)
+
+  p_noexons <- locus_plotly(loc, gene_col = "red", exon_col = "red",
+                            exon_border = "red", showExons = FALSE,
+                            dynamic = TRUE)
+  check_widget_cfg(p_noexons, red)
+})
+
 test_that("the payload carries the unfiltered gene tables, not the maxrows-truncated panel", {
   skip_if_no_ensdb()
   loc <- make_dense_locus()
