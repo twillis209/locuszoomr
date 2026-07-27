@@ -41,6 +41,13 @@
 #' @param dynamic Logical whether to re-pack the gene tracks in the browser as
 #'   the user zooms or pans. Requires JavaScript, so set to `FALSE` when
 #'   exporting to a static image.
+#' @param scrollZoom Logical whether the mouse wheel zooms the plot. Defaults to
+#'   `FALSE`, matching plotly's own default for cartesian plots, because an
+#'   enabled plot captures the wheel and prevents the reader scrolling past it
+#'   in a vignette or R Markdown document. Only the shared x axis is affected,
+#'   since both y axes are fixed, so the -log10 P scale cannot be distorted.
+#'   Combines with `dynamic`: scrolling re-packs the gene tracks just as
+#'   dragging does.
 #' @param ... Optional arguments passed to [scatter_plotly()] to control the
 #'   scatter plot.
 #' @returns A 'plotly' plotting object showing a scatter plot above gene tracks.
@@ -69,6 +76,7 @@ locus_plotly <- function(loc, heights = c(0.6, 0.4),
                          prioritise = NULL,
                          blanks = "show",
                          dynamic = TRUE,
+                         scrollZoom = FALSE,
                          ...) {
   pheights <- NULL
   if (any(heights > 1)) {
@@ -88,19 +96,27 @@ locus_plotly <- function(loc, heights = c(0.6, 0.4),
   sp <- plotly::subplot(p, g, shareX = TRUE, nrows = 2, heights = heights,
                         titleY = TRUE, margin = 0)
 
-  if (!dynamic || is.null(gt)) return(sp)
+  out <- if (!dynamic || is.null(gt)) {
+    sp
+  } else {
+    # See the matching comment in genetrack_ly() (R/genetrack_ly.R): the R
+    # side of add_genetrack_relayout() can stop() (e.g. if the gene track
+    # traces can't be resolved after subplot()), which, left unguarded, would
+    # turn a working locus_plotly(loc) call into a hard error since
+    # dynamic = TRUE is the default. Warn and fall back to the static
+    # subplot `sp` instead.
+    tryCatch(
+      add_genetrack_relayout(sp, gt$TX, gt$EX, gt$cfg),
+      error = function(e) {
+        warning("dynamic gene track disabled: ", conditionMessage(e),
+                call. = FALSE)
+        sp
+      })
+  }
 
-  # See the matching comment in genetrack_ly() (R/genetrack_ly.R): the R
-  # side of add_genetrack_relayout() can stop() (e.g. if the gene track
-  # traces can't be resolved after subplot()), which, left unguarded, would
-  # turn a working locus_plotly(loc) call into a hard error since
-  # dynamic = TRUE is the default. Warn and fall back to the static
-  # subplot `sp` instead.
-  tryCatch(
-    add_genetrack_relayout(sp, gt$TX, gt$EX, gt$cfg),
-    error = function(e) {
-      warning("dynamic gene track disabled: ", conditionMessage(e),
-              call. = FALSE)
-      sp
-    })
+  # Applied to the finished object rather than to the constituent panels, so
+  # it reaches the combined widget on both the dynamic and static paths.
+  # plotly::config() merges, so the modebar settings set upstream survive.
+  if (scrollZoom) out <- plotly::config(out, scrollZoom = TRUE)
+  out
 }

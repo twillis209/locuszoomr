@@ -7,6 +7,11 @@ News
 * Gene tracks in `locus_plotly()` and `genetrack_ly()` now re-pack their rows in
 the browser as you zoom or pan. Set `dynamic = FALSE` to restore the previous
 static behaviour, for example when exporting to a static image.
+* Added a `scrollZoom` argument to `locus_plotly()` and `genetrack_ly()` to zoom
+the plot with the mouse wheel. Off by default, since an enabled plot captures
+the wheel and stops readers scrolling past it in a vignette or R Markdown
+document. Only the x axis is affected, and scrolling re-packs the gene tracks
+in the same way dragging does.
 
 ### Changes
 * The gene track panel's y axis is now pinned to a fixed range (based on the

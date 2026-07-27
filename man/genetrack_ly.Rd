@@ -21,7 +21,8 @@ genetrack_ly(
   blanks = c("fill", "hide", "show"),
   height = NULL,
   plot = TRUE,
-  dynamic = TRUE
+  dynamic = TRUE,
+  scrollZoom = FALSE
 )
 }
 \arguments{
@@ -77,6 +78,13 @@ plotly object is built in that case. Note that \code{plotly::subplot()} drops
 \code{genetrack_ly()} into your own \code{subplot()} call will silently lose the
 dynamic behaviour even when \code{dynamic = TRUE}; use \code{\link[=locus_plotly]{locus_plotly()}}
 instead, which re-attaches it after building its own subplot.}
+
+\item{scrollZoom}{Logical whether the mouse wheel zooms the plot. Defaults to
+\code{FALSE}, matching plotly's own default for cartesian plots, because an
+enabled plot captures the wheel and prevents the reader scrolling past it
+in a vignette or R Markdown document. Only the x axis is affected, since
+the y axis is fixed. Combines with \code{dynamic}: scrolling re-packs the gene
+tracks just as dragging does.}
 }
 \value{
 Either a 'plotly' plotting object showing gene tracks, or if

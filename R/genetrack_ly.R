@@ -39,6 +39,12 @@
 #'   `genetrack_ly()` into your own `subplot()` call will silently lose the
 #'   dynamic behaviour even when `dynamic = TRUE`; use [locus_plotly()]
 #'   instead, which re-attaches it after building its own subplot.
+#' @param scrollZoom Logical whether the mouse wheel zooms the plot. Defaults to
+#'   `FALSE`, matching plotly's own default for cartesian plots, because an
+#'   enabled plot captures the wheel and prevents the reader scrolling past it
+#'   in a vignette or R Markdown document. Only the x axis is affected, since
+#'   the y axis is fixed. Combines with `dynamic`: scrolling re-packs the gene
+#'   tracks just as dragging does.
 #' @return Either a 'plotly' plotting object showing gene tracks, or if
 #'   `plot = FALSE` a list containing `TX`, a dataframe of coordinates for
 #'   gene transcripts, and `EX`, a dataframe of coordinates for exons. When
@@ -70,7 +76,8 @@ genetrack_ly <- function(locus,
                          blanks = c("fill", "hide", "show"),
                          height = NULL,
                          plot = TRUE,
-                         dynamic = TRUE) {
+                         dynamic = TRUE,
+                         scrollZoom = FALSE) {
   if (!inherits(locus, "locus")) stop("Object of class 'locus' required")
   blanks <- match.arg(blanks)
   TX <- locus$TX
@@ -97,6 +104,7 @@ genetrack_ly <- function(locus,
                      yaxis = list(title = "", showgrid = FALSE, zeroline = FALSE,
                                   showticklabels = FALSE)) %>%
       plotly::config(displaylogo = FALSE)
+    if (scrollZoom) p <- plotly::config(p, scrollZoom = TRUE)
     return(p)
   }
   
@@ -207,6 +215,12 @@ genetrack_ly <- function(locus,
                    modeBarButtonsToRemove = c("select2d", "lasso2d",
                                               "autoScale2d", "resetScale2d",
                                               "hoverClosest", "hoverCompare"))
+
+  # Applied conditionally, not as a plain `scrollZoom = scrollZoom` argument
+  # above: setting the key even to FALSE makes this config differ from
+  # scatter_plotly()'s, and plotly::subplot() then warns "Can only have one:
+  # config" for every locus_plotly() call.
+  if (scrollZoom) p <- plotly::config(p, scrollZoom = TRUE)
 
   # Carried so locus_plotly() can build the payload after subplot() without
   # re-running the whole gene track preparation.

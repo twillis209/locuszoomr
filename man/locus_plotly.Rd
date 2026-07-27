@@ -21,6 +21,7 @@ locus_plotly(
   prioritise = NULL,
   blanks = "show",
   dynamic = TRUE,
+  scrollZoom = FALSE,
   ...
 )
 }
@@ -71,6 +72,14 @@ which are missing gene symbols. \code{"show"} shows gene lines but no label
 \item{dynamic}{Logical whether to re-pack the gene tracks in the browser as
 the user zooms or pans. Requires JavaScript, so set to \code{FALSE} when
 exporting to a static image.}
+
+\item{scrollZoom}{Logical whether the mouse wheel zooms the plot. Defaults to
+\code{FALSE}, matching plotly's own default for cartesian plots, because an
+enabled plot captures the wheel and prevents the reader scrolling past it
+in a vignette or R Markdown document. Only the shared x axis is affected,
+since both y axes are fixed, so the -log10 P scale cannot be distorted.
+Combines with \code{dynamic}: scrolling re-packs the gene tracks just as
+dragging does.}
 
 \item{...}{Optional arguments passed to \code{\link[=scatter_plotly]{scatter_plotly()}} to control the
 scatter plot.}
