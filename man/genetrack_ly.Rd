@@ -30,7 +30,7 @@ genetrack_ly(
 \item{filter_gene_name}{Vector of gene names to display.}
 
 \item{filter_gene_biotype}{Vector of gene biotypes to be filtered. Use
-\code{\link[ensembldb:EnsDb-class]{ensembldb::listGenebiotypes()}} to display possible biotypes. For example,
+\code{\link[ensembldb:listGenebiotypes]{ensembldb::listGenebiotypes()}} to display possible biotypes. For example,
 \code{ensembldb::listGenebiotypes(EnsDb.Hsapiens.v75)}}
 
 \item{cex.text}{Font size for gene text.}
@@ -71,12 +71,19 @@ coordinates.}
 
 \item{dynamic}{Logical whether to re-pack the gene tracks in the browser as
 the user zooms or pans. Requires JavaScript, so set to \code{FALSE} when
-exporting to a static image.}
+exporting to a static image. Has no effect when \code{plot = FALSE}, since no
+plotly object is built in that case. Note that \code{plotly::subplot()} drops
+\code{onRender} hooks from its inputs, so composing the result of
+\code{genetrack_ly()} into your own \code{subplot()} call will silently lose the
+dynamic behaviour even when \code{dynamic = TRUE}; use \code{\link[=locus_plotly]{locus_plotly()}}
+instead, which re-attaches it after building its own subplot.}
 }
 \value{
 Either a 'plotly' plotting object showing gene tracks, or if
 \code{plot = FALSE} a list containing \code{TX}, a dataframe of coordinates for
-gene transcripts, and \code{EX}, a dataframe of coordinates for exons.
+gene transcripts, and \code{EX}, a dataframe of coordinates for exons. When
+\code{dynamic = TRUE} (the default), the returned plotly object has already
+been passed through \code{plotly::plotly_build()}.
 }
 \description{
 Plot gene annotation tracks from \code{ensembldb} data using \code{plotly}.

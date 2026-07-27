@@ -8,6 +8,12 @@ News
 the browser as you zoom or pan. Set `dynamic = FALSE` to restore the previous
 static behaviour, for example when exporting to a static image.
 
+### Changes
+* The gene track panel's y axis is now pinned to a fixed range (based on the
+resolved number of rows) instead of being auto-ranged by `plotly`. This
+slightly changes the vertical padding of static gene track plots, including
+`kaleido`/`orca` image exports.
+
 # locuszoomr 0.3.9
 ###### 27/03/2026
 * Added `prioritise` argument to allow users to place important genes first in 

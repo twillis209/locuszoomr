@@ -117,12 +117,15 @@ resolve_genetrack_idx <- function(built) {
 #'   can be resolved.
 #' @param TX,EX Transcript and exon data frames in Mb, `TX` already ordered by
 #'   [mapRow()].
-#' @param cfg Named list of render settings. `showExons`, `geneCol`,
-#'   `exonCol` and `exonBorder` are optional here and default to `TRUE`,
-#'   `col2hex("skyblue")`, `col2hex("blue4")` and `col2hex("blue4")`
-#'   respectively, matching [genetrack_ly()]'s own defaults. `geneCol` is
-#'   only read client-side when `showExons` is `FALSE`; `exonCol` only when
-#'   it is `TRUE`; `exonBorder` is read in both cases.
+#' @param cfg Named list of render settings. Every current call site routes
+#'   `cfg` through [genetrack_cfg()], which always populates `showExons`,
+#'   `geneCol`, `exonCol` and `exonBorder`, so in practice this function never
+#'   receives them missing. The `TRUE`/`col2hex("skyblue")`/
+#'   `col2hex("blue4")`/`col2hex("blue4")` fallbacks below are defensive only
+#'   — not a documented part of the expected input — in case a future or
+#'   external caller supplies an incomplete `cfg`. `geneCol` is only read
+#'   client-side when `showExons` is `FALSE`; `exonCol` only when it is
+#'   `TRUE`; `exonBorder` is read in both cases.
 #' @return The built plotly object with an `onRender` handler attached.
 #' @importFrom htmlwidgets onRender
 #' @noRd

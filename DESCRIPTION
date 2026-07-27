@@ -37,7 +37,6 @@ Imports:
     rtracklayer,
     zoo
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.3
 Suggests:
     AnnotationHub,
     EnsDb.Hsapiens.v75,
@@ -47,3 +46,4 @@ Suggests:
     testthat (>= 3.0.0)
 VignetteBuilder: knitr
 Config/testthat/edition: 3
+Config/roxygen2/version: 8.0.0

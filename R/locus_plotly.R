@@ -90,5 +90,17 @@ locus_plotly <- function(loc, heights = c(0.6, 0.4),
 
   if (!dynamic || is.null(gt)) return(sp)
 
-  add_genetrack_relayout(sp, gt$TX, gt$EX, gt$cfg)
+  # See the matching comment in genetrack_ly() (R/genetrack_ly.R): the R
+  # side of add_genetrack_relayout() can stop() (e.g. if the gene track
+  # traces can't be resolved after subplot()), which, left unguarded, would
+  # turn a working locus_plotly(loc) call into a hard error since
+  # dynamic = TRUE is the default. Warn and fall back to the static
+  # subplot `sp` instead.
+  tryCatch(
+    add_genetrack_relayout(sp, gt$TX, gt$EX, gt$cfg),
+    error = function(e) {
+      warning("dynamic gene track disabled: ", conditionMessage(e),
+              call. = FALSE)
+      sp
+    })
 }

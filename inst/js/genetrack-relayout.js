@@ -62,6 +62,17 @@
       if (g.label !== '') {
         halfw = LZR.measure('--' + g.name, P.cfg.fontSizePx) / pxPerData / 2;
       }
+      /* KNOWN UNFIXED LIMITATION: mid is the gene's own midpoint, never
+       * clamped into the visible [x0, x1] window, mirroring R's behaviour
+       * (mapRow(), defined in R/genetracks.R, computes the same unclamped
+       * midpoint for label placement). When a gene straddles the viewport
+       * edge, its bar is still drawn (clipped by Plotly), but its label
+       * anchor (`mid`) can fall outside the viewport entirely, so the
+       * label is not rendered even though part of the gene is visible.
+       * Fixing this would mean clamping the anchor into the gene's
+       * on-screen portion, e.g.
+       * `mid = clamp(mid, max(g.start, x0), min(g.end, x1))`.
+       * Left as-is to match R's existing static output. */
       var mid = (g.start + g.end) / 2;
       items.push({
         i: i, mid: mid, priority: g.priority,
@@ -155,6 +166,19 @@
         var ax = gd._fullLayout[xkey];
         var rng = ax.range;
         var len = ax._length;
+        /* Hidden-container guard: inside a Bootstrap tabset, flexdashboard
+         * page, or any display:none ancestor, Plotly.Plots.resize() (fired
+         * on tab switch) can emit 'plotly_relayout' while this axis has
+         * zero (or as-yet-unset) pixel length. Neither failure mode throws,
+         * so fail()/catch() never sees it: len === 0 makes pxPerData 0 and
+         * every gene's footprint [-Infinity, +Infinity], so everything
+         * clashes and collapses to one gene per row (silently dropping the
+         * rest past maxrows); len === undefined makes pxPerData NaN, so no
+         * clash comparison is ever true and every gene lands on row 1,
+         * stacked on top of each other. Bail out before any of that,
+         * *before* `busy` is set below, so neither it nor `pending` is left
+         * stuck by this early return. */
+        if (!(len > 0) || !isFinite(rng[0]) || !isFinite(rng[1])) return;
         /* No-op guard: dragmode toggles and legend clicks fire
          * plotly_relayout without changing the x range or the axis's
          * rendered pixel length, so skip the re-pack in that case. A window
@@ -214,6 +238,19 @@
           }
         }
 
+        /* KNOWN UNFIXED LIMITATION: this annotation branch only executes
+         * inside apply(), which itself only runs in response to a
+         * 'plotly_relayout' event (see gd.on(...) below and the initial
+         * onRender wiring in R/genetrack_relayout.R). It never runs on the
+         * INITIAL render — the widget is handed to the browser already
+         * built by R, with no relayout event to trigger a re-pack. That is
+         * exactly the view where truncation (rows beyond maxrows) is most
+         * likely, since R packed at a possibly-too-narrow `width`. So on
+         * first paint there is no on-plot "N genes not shown" annotation
+         * at all; the only truncation signal available to the user at that
+         * point is the console message() emitted R-side in
+         * R/genetrack_ly.R ("N tracks needed to show all genes"), which is
+         * invisible unless the browser/R console is open. */
         var ann = baseAnn.slice();
         if (res.rows.length === 0) {
           ann.push(LZR.note('No genes in view', P));
