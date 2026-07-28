@@ -28,6 +28,7 @@ Imports:
     graphics,
     grDevices,
     grid,
+    htmlwidgets,
     IRanges,
     LDlinkR,
     memoise,
@@ -39,7 +40,10 @@ Roxygen: list(markdown = TRUE)
 Suggests:
     AnnotationHub,
     EnsDb.Hsapiens.v75,
+    jsonlite,
     knitr,
-    rmarkdown
+    rmarkdown,
+    testthat (>= 3.0.0)
 VignetteBuilder: knitr
+Config/testthat/edition: 3
 Config/roxygen2/version: 8.0.0

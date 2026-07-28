@@ -41,3 +41,17 @@ inst/doc
 
 # Local design docs
 docs/
+
+# Local scratch / preview output
+dev/
+
+# Local dev environment file and scratch files at package root (not part of
+# the package source; would otherwise be swept into R CMD build's tarball)
+/environment.yml
+/test_regtracks.R
+/test_regtracks.Rmd
+/test_regtracks.html
+
+# Generated anywhere by par("pin")/graphics devices opened while running
+# tests (e.g. genetrack_ly() tests)
+Rplots.pdf

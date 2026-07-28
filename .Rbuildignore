@@ -5,3 +5,8 @@
 ^CRAN-RELEASE$
 
 ^CRAN-SUBMISSION$
+^docs$
+^dev$
+^\.agent-shell$
+^\.claude$
+^\.superpowers$
