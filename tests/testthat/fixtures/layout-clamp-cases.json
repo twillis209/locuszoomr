@@ -1,0 +1,27 @@
+[
+  {
+    "name": "left edge, gene wide enough to hold its label",
+    "x0": 10, "x1": 20, "pxPerData": 60,
+    "tx": [{"name": "AAAA", "start": 2, "end": 17}]
+  },
+  {
+    "name": "right edge, gene wide enough to hold its label",
+    "x0": 10, "x1": 20, "pxPerData": 60,
+    "tx": [{"name": "BBBB", "start": 13, "end": 28}]
+  },
+  {
+    "name": "left edge, gene too narrow to hold its label",
+    "x0": 10, "x1": 20, "pxPerData": 60,
+    "tx": [{"name": "CCCC", "start": 2, "end": 9.8}]
+  },
+  {
+    "name": "fully visible gene is untouched",
+    "x0": 10, "x1": 20, "pxPerData": 60,
+    "tx": [{"name": "DDDD", "start": 12, "end": 16}]
+  },
+  {
+    "name": "gene with no label is never clamped",
+    "x0": 10, "x1": 20, "pxPerData": 60,
+    "tx": [{"name": "", "start": 2, "end": 17}]
+  }
+]

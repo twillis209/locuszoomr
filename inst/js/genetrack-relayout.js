@@ -62,18 +62,33 @@
       if (g.label !== '') {
         halfw = LZR.measure('--' + g.name, P.cfg.fontSizePx) / pxPerData / 2;
       }
-      /* KNOWN UNFIXED LIMITATION: mid is the gene's own midpoint, never
-       * clamped into the visible [x0, x1] window, mirroring R's behaviour
-       * (mapRow(), defined in R/genetracks.R, computes the same unclamped
-       * midpoint for label placement). When a gene straddles the viewport
-       * edge, its bar is still drawn (clipped by Plotly), but its label
-       * anchor (`mid`) can fall outside the viewport entirely, so the
-       * label is not rendered even though part of the gene is visible.
-       * Fixing this would mean clamping the anchor into the gene's
-       * on-screen portion, e.g.
-       * `mid = clamp(mid, max(g.start, x0), min(g.end, x1))`.
-       * Left as-is to match R's existing static output. */
       var mid = (g.start + g.end) / 2;
+
+      /* Edge-label clamping, mirroring mapRow() in R/genetracks.R. A gene
+       * straddling the viewport edge would otherwise anchor its label at its
+       * own midpoint, which can sit off-screen, so the bar renders but the
+       * name does not. Pull the anchor just inside the boundary instead --
+       * but only when the gene is wide enough to hold the whole label, else
+       * the text would float beyond the gene it belongs to.
+       *
+       * The conditions and the sequential left-then-right order match R (a
+       * gene wider than the view can satisfy both, and the right-hand test
+       * sees the already-clamped anchor), but the boundary does NOT. R
+       * clamps to xlim widened by 4%, which works on a graphics device
+       * because text may render into the plot margin. Plotly clips hard at
+       * the axis range, so an anchor placed at `x0 - 0.04 * span + halfw`
+       * is still off-screen whenever halfw is smaller than that overshoot,
+       * and only the tail of the label (the strand arrow) shows. Clamp to
+       * the visible window itself so the whole label lands inside it.
+       *
+       * Unlabelled genes are skipped: halfw is 0 for them, which would
+       * satisfy the conditions trivially and shift the packing footprint
+       * for no visible gain. */
+      if (halfw > 0) {
+        var gwFull = halfw * 2;
+        if ((mid - halfw) < x0 && (x0 + gwFull) < g.end) mid = x0 + halfw;
+        if ((mid + halfw) > x1 && (x1 - gwFull) > g.start) mid = x1 - halfw;
+      }
       items.push({
         i: i, mid: mid, priority: g.priority,
         min: Math.min(g.start, g.end, mid - halfw) - gap / 2,

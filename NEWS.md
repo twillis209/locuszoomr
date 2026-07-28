@@ -17,6 +17,10 @@ in the same way dragging does.
 ### Fixes
 * Add edge gene labels if they fit (issue #43)
 * Fix empty LD bins in `gg_scatter` (issue #48)
+* Gene labels no longer disappear at the edges of the view when zooming or
+panning a dynamic plotly gene track. The label anchor is now pulled inside the
+visible window, mirroring the static plots, provided the gene is wide enough to
+hold the whole label.
 
 ### Changes
 * The gene track panel's y axis is now pinned to a fixed range (based on the
