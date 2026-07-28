@@ -1,6 +1,11 @@
 News
 =====
 
+# locuszoomr 0.3.10
+###### 18/07/2026
+* Add edge gene labels if they fit (issue #43)
+* Fix empty LD bins in `gg_scatter` (issue #48)
+
 # locuszoomr 0.3.9
 ###### 27/03/2026
 * Added `prioritise` argument to allow users to place important genes first in 
