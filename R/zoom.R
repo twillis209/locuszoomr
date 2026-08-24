@@ -340,8 +340,6 @@ zoom <- function(data, ens_db,
     
     input_biotype <- reactive({input$biotype}) %>% debounce(2000)
     
-    loc <- reactiveValues(i = NULL)
-    ntrace <- reactiveVal()
     genes <- reactiveValues(x = NULL)
     
     output$locus <- renderPlotly({
@@ -355,30 +353,17 @@ zoom <- function(data, ens_db,
         loc1 <- link_recomb(loc1, recomb = recomb)
       }
       loc1$TX$fullname <- expandGenes(loc1$TX, fullnames)
-      loc$i <- loc1
-      
+
       # req(nrow(loc1$data) > 0)
-      if (is.null(eqtl_gene) & is.null(eqtl_beta)) {
-        nt <- (sum(loc1$data[, p] < pcutoff) > 1) + 2L
-      } else {
-        # eqtl
+      # This block used to also count traces, to tell plotlyProxy() which ones
+      # held the gene track. That proxy path is gone (see below), so only the
+      # eQTL values consumed further down survive.
+      if (!is.null(eqtl_gene) | !is.null(eqtl_beta)) {
         ind <- loc1$data[, p] < pcutoff
         eqtls <- loc1$data[ind, eqtl_gene]
         genes$x <- unique(eqtls)
-        if (!is.null(eqtl_gene) & is.null(eqtl_beta)) {
-          # eqtl genes only
-          ngene <- length(unique(eqtls))
-          nt <- ngene + 1L
-        } else if (!is.null(eqtl_gene) & !is.null(eqtl_beta)) {
-          # eqtl + beta
-          sgn <- sign(loc1$data[ind, eqtl_beta])
-          eb <- paste0(eqtls, sgn)
-          nt <- length(unique(eb)) + 1L
-        }
       }
-      nt <- nt + (!is.null(recomb) && input$recomb)
-      ntrace(nt)
-      
+
       if (!is.null(eqtl_gene)) {
         genes1 <- unique(eqtls)
         locscheme <- unname(c('grey', eqtl_colour[genes1]))
@@ -392,10 +377,17 @@ zoom <- function(data, ens_db,
       } else locscheme <- c('grey', 'dodgerblue', 'red')
       
       isolate(width <- loc_width())
-      isolate(biotype <- input_biotype())
+      # NOT isolated: the gene track is re-packed client-side by
+      # inst/js/genetrack-relayout.js against a payload captured when the
+      # widget is built, so changing the biotype filter has to rebuild the
+      # widget to give the browser a fresh gene set. Pushing new genes in via
+      # plotlyProxy() instead would leave that payload stale, and the next
+      # zoom/pan would silently re-pack the pre-filter genes back in.
+      biotype <- input_biotype()
       locus_plotly(loc1, filter_gene_biotype = biotype, pcutoff = pcutoff,
                    width = width, eqtl_gene = eqtl_gene, beta = eqtl_beta,
-                   add_hover = add_hover, scheme = locscheme)
+                   add_hover = add_hover, scheme = locscheme,
+                   dynamic = TRUE, scrollZoom = TRUE)
     })
     
     output$ui_genes <- renderUI({
@@ -501,9 +493,22 @@ zoom <- function(data, ens_db,
     })
     
     # detect change to x axis range
-    observeEvent(event_data("plotly_relayout", source = "plotly_locus"), {
+    #
+    # Debounced because `scrollZoom = TRUE` turns one wheel gesture into a
+    # burst of relayout events, and each one landing here would trigger a full
+    # server round-trip: a fresh locus() call, a fresh ensembl query and a
+    # complete re-render of the widget. The client-side re-pack in
+    # inst/js/genetrack-relayout.js already redraws the gene track on every
+    # one of those events, so the interaction stays responsive while the wheel
+    # is turning; the server only needs to catch up once the user settles, to
+    # pull in SNPs and genes outside the window originally fetched.
+    locus_relayout <- reactive({
+      event_data("plotly_relayout", source = "plotly_locus")
+    }) %>% debounce(500)
+
+    observeEvent(locus_relayout(), {
       req(coords$chr %in% chr_set, coords$xrange)
-      s <- event_data("plotly_relayout", source = "plotly_locus")
+      s <- locus_relayout()
       req(c("xaxis.range[0]", "xaxis.range[1]") %in% names(s))
       xr <- c(s$`xaxis.range[0]`, s$`xaxis.range[1]`)
       coords$xrange <- as.integer(xr * 1e6)
@@ -515,45 +520,18 @@ zoom <- function(data, ens_db,
       loc_width(session$clientData$output_locus_width)
     })
     
-    # redo gene tracks only
-    observeEvent(c(loc_width(), input_biotype()), {
-      req(loc$i)
-      gt <- genetrack_ly(loc$i, filter_gene_biotype = input_biotype(),
-                         width = loc_width(), blanks = "show", plot = FALSE)
-      req(nrow(gt$TX) != 0)
-      TX <- gt$TX
-      EX <- gt$EX
-      lx <- seg2line(TX$start, TX$end)
-      ly <- seg2line(-TX$row, -TX$row)
-      hovertext <- paste0(TX$gene_name,
-                          TX$fullname,
-                          "<br>Gene ID: ", TX$gene_id,
-                          "<br>Biotype: ", TX$gene_biotype,
-                          "<br>Start: ", TX$start * 1e6,
-                          "<br>End: ", TX$end * 1e6)
-      ht <- seg2line(hovertext, hovertext)
-      exon_col <- exon_border <- "#00008B"
-      yref <- if (is.null(recomb) || !input$recomb) "y2" else "y3"
-      shapes <- lapply(seq_len(nrow(EX)), function(i) {
-        list(type = "rect", fillcolor = exon_col, line = list(color = exon_border,
-                                                              width = 0.5),
-             x0 = EX$start[i], x1 = EX$end[i], xref = "x",
-             y0 = -EX$row[i] - 0.15, y1 = -EX$row[i] + 0.15, yref = yref)
-      })
-      ok <- !is.na(TX$gene_name2)
-      
-      plotlyProxy("locus", session) %>%
-        plotlyProxyInvoke("restyle",
-                          list(x = list(lx), y = list(ly), text = list(ht),
-                               hoverinfo = "text"),
-                          list(ntrace())) %>%
-        plotlyProxyInvoke("update",
-                          list(x = list(TX$tx[ok]), y = list(TX$ty[ok]),
-                               text = list(TX$gene_name2[ok]), hoverinfo = "none"),
-                          list(shapes = shapes),
-                          list(ntrace() + 1L))
-    })
-    
+    # The gene track used to be re-packed here, server-side, by pushing fresh
+    # coordinates into the widget with plotlyProxy() whenever the plot width or
+    # the biotype filter changed. That job now belongs entirely to
+    # inst/js/genetrack-relayout.js, which re-packs in the browser on every
+    # zoom, pan and resize. Two writers to the same traces and shapes would
+    # race, and the browser would win with stale data: its gene payload is
+    # captured when the widget is built, so anything proxied in afterwards is
+    # discarded on the next re-pack. Width is handled client-side (the JS
+    # measures the real rendered axis length, which is more accurate than the
+    # `width` argument R packs against); biotype rebuilds the widget instead,
+    # see output$locus above.
+
     # chrom highlight
     observeEvent(coords$xrange, {
       req(input$show_chrom, coords$chr)
@@ -701,12 +679,6 @@ plotly_manhattan <- function(obj,
                                 ticks = "outside",
                                 zeroline = FALSE, showline = TRUE),
                    shapes = hline)
-}
-
-
-seg2line <- function(x, xend) {
-  m <- rbind(x, xend, NA)
-  as.vector(m)
 }
 
 
