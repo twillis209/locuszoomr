@@ -274,27 +274,35 @@
         }
 
         busy = true;
-        Plotly.restyle(gd, {x: [lx], y: [ly], text: [lt]}, [P.idx.lineTrace])
-          .then(function () {
-            return Plotly.restyle(gd, {x: [tx], y: [ty], text: [tt]},
-                                  [P.idx.labelTrace]);
-          })
-          .then(function () {
-            return Plotly.relayout(gd, {shapes: shapes, annotations: ann});
-          })
+        /* One Plotly.update(), not restyle -> restyle -> relayout chained by
+         * .then(). Each call in that chain repainted the WHOLE figure, so a
+         * single re-pack cost three full redraws, all landing together 100ms
+         * after the gesture stopped (schedule()'s debounce). On a plot with a
+         * scatter panel above the gene track that reads as the points being
+         * drawn three more times in place the moment you stop scrolling.
+         * Plotly.update() applies the trace data and the layout in one pass,
+         * so the re-pack costs a single redraw. The trace-update arrays are
+         * positional: element 0 goes to lineTrace, element 1 to labelTrace. */
+        Plotly.update(gd,
+                      {x: [lx, tx], y: [ly, ty], text: [lt, tt]},
+                      {shapes: shapes, annotations: ann},
+                      [P.idx.lineTrace, P.idx.labelTrace])
           .then(function () {
             busy = false;
-            /* A *genuine* relayout (not our own Plotly.relayout(shapes/
-             * annotations) call above, which the listener below already
-             * filters out via isSelfUpdate before pending is ever set) can
-             * arrive while this apply() was in flight; the three-restyle
-             * chain takes long enough (150-300ms on a dense locus) that a
-             * dragmode="pan" user can easily pan again before it settles.
-             * Re-run once more against the now-current range instead of
-             * leaving the panel packed for the stale window. This does NOT
-             * on its own risk an infinite loop: Plotly.relayout's own
-             * self-emitted event is excluded upstream by isSelfUpdate(), so
-             * `pending` only ever becomes true for a real user-driven event. */
+            /* A genuine relayout can arrive while this apply() was in flight;
+             * a dense locus still takes long enough that a dragmode="pan"
+             * user can pan again before it settles. Re-run once more against
+             * the now-current range instead of leaving the panel packed for
+             * the stale window.
+             *
+             * This does not risk an infinite loop. Measured: Plotly.update()
+             * emits no 'plotly_relayout' at all, unlike the Plotly.relayout()
+             * call it replaced, so the self-triggered event that isSelfUpdate()
+             * was written to filter no longer reaches the listener on this
+             * path, and `pending` can only be set by a real user-driven event.
+             * isSelfUpdate() is kept as a guard rather than removed: it costs
+             * nothing and still covers the case where a future plotly.js
+             * starts emitting one. */
             if (pending) { pending = false; schedule(); }
           })
           .catch(function (err) { busy = false; fail(err); });
