@@ -243,7 +243,7 @@ zoom <- function(data, ens_db,
       yr <- range(chr_manhat$data$logP, na.rm = TRUE)
       isolate(chr_y$range <- yr)
       isolate(chr_y$max <- yr[2])
-      isolate(xr <- coords$xrange)
+      isolate(xr <- view$xrange)
       
       plotly_manhattan(chr_manhat, labs, scheme = scheme,
                        source = "plotly_chrom") %>%
@@ -258,8 +258,25 @@ zoom <- function(data, ens_db,
         config(displayModeBar = FALSE)
     })
     
+    # `coords` is the window locus() was called for, i.e. the data currently
+    # loaded, and is what output$locus depends on. `view` is the window
+    # actually on screen, which drifts away from `coords` whenever the user
+    # zooms or pans inside the loaded data. Keeping them apart is what stops a
+    # scroll gesture from triggering a re-render that redraws the same points
+    # in place; see the relayout observer below.
     coords <- reactiveValues(chr = NULL, xrange = NULL)
-    
+    view <- reactiveValues(chr = NULL, xrange = NULL)
+
+    # Jump somewhere new: the plot has to move, so the data window and the
+    # displayed window both change. Every navigation control goes through this.
+    goto <- function(chr, xr) {
+      xr <- as.integer(xr)
+      coords$chr <- chr
+      coords$xrange <- xr
+      view$chr <- chr
+      view$xrange <- xr
+    }
+
     # hide picker at start
     output$coords_ok <- reactive({!is.null(coords$chr)})
     outputOptions(output, "coords_ok", suspendWhenHidden = FALSE)
@@ -269,8 +286,7 @@ zoom <- function(data, ens_db,
       req(s)
       w <- which(data[, labs] == s$key)
       if (length(w) > 0) {
-        coords$chr <- data[w[1], chrom]
-        coords$xrange <- data[w[1], pos] + c(-5e5, 5e5)
+        goto(data[w[1], chrom], data[w[1], pos] + c(-5e5, 5e5))
       }
     })
     
@@ -279,8 +295,7 @@ zoom <- function(data, ens_db,
       req(s)
       w <- which(data[, labs] == s$key)
       if (length(w) > 0) {
-        coords$chr <- data[w[1], chrom]
-        coords$xrange <- data[w[1], pos] + c(-5e5, 5e5)
+        goto(data[w[1], chrom], data[w[1], pos] + c(-5e5, 5e5))
       }
     })
     
@@ -403,40 +418,49 @@ zoom <- function(data, ens_db,
     
     outputOptions(output, "ui_genes", suspendWhenHidden = FALSE)
     
+    # Nav buttons step relative to the window on screen, not the loaded one:
+    # after a scroll-zoom those differ, and panning should move by what the
+    # user can see.
     observeEvent(input$left2, {
-      dif <- diff(coords$xrange)
-      coords$xrange <- pmax(coords$xrange - dif, 0)
+      req(view$xrange)
+      dif <- diff(view$xrange)
+      goto(view$chr, pmax(view$xrange - dif, 0))
     })
-    
+
     observeEvent(input$right2, {
-      dif <- diff(coords$xrange)
-      coords$xrange <- coords$xrange + dif
+      req(view$xrange)
+      dif <- diff(view$xrange)
+      goto(view$chr, view$xrange + dif)
     })
-    
+
     observeEvent(input$left, {
-      dif <- round(diff(coords$xrange) / 2)
-      coords$xrange <- pmax(coords$xrange - dif, 0)
+      req(view$xrange)
+      dif <- round(diff(view$xrange) / 2)
+      goto(view$chr, pmax(view$xrange - dif, 0))
     })
-    
+
     observeEvent(input$right, {
-      dif <- round(diff(coords$xrange) / 2)
-      coords$xrange <- coords$xrange + dif
+      req(view$xrange)
+      dif <- round(diff(view$xrange) / 2)
+      goto(view$chr, view$xrange + dif)
     })
-    
+
     observeEvent(input$zoomin, {
-      dif <- round(diff(coords$xrange) / 4)
-      coords$xrange <- coords$xrange + c(dif, -dif)
+      req(view$xrange)
+      dif <- round(diff(view$xrange) / 4)
+      goto(view$chr, view$xrange + c(dif, -dif))
     })
-    
+
     observeEvent(input$zoomout, {
-      dif <- round(diff(coords$xrange) / 2)
-      coords$xrange <- pmax(coords$xrange + c(-dif, dif), 0)
+      req(view$xrange)
+      dif <- round(diff(view$xrange) / 2)
+      goto(view$chr, pmax(view$xrange + c(-dif, dif), 0))
     })
     
     output$pos <- renderText({
-      req(coords$chr %in% chr_set, coords$xrange)
-      paste0("chr ", coords$chr, ": ", coords$xrange[1], " - ",
-             coords$xrange[2])
+      req(view$chr %in% chr_set, view$xrange)
+      paste0("chr ", view$chr, ": ", view$xrange[1], " - ",
+             view$xrange[2])
     })
     
     # parse text box
@@ -478,8 +502,7 @@ zoom <- function(data, ens_db,
       xr <- as.integer(pmax(xr, 0))
       
       if (chr %in% chr_set) {
-        coords$chr <- chr
-        coords$xrange <- xr
+        goto(chr, xr)
         hideFeedback("tex")
       } else {
         showFeedback("tex", "not present")
@@ -510,8 +533,16 @@ zoom <- function(data, ens_db,
       req(coords$chr %in% chr_set, coords$xrange)
       s <- locus_relayout()
       req(c("xaxis.range[0]", "xaxis.range[1]") %in% names(s))
-      xr <- c(s$`xaxis.range[0]`, s$`xaxis.range[1]`)
-      coords$xrange <- as.integer(xr * 1e6)
+      xr <- as.integer(c(s$`xaxis.range[0]`, s$`xaxis.range[1]`) * 1e6)
+      view$chr <- coords$chr
+      view$xrange <- xr
+      # Only go back to the server when the user has moved outside the data
+      # locus() already returned. Zooming in, or panning within it, needs
+      # nothing: plotly is already showing the right window client-side and the
+      # gene track has been re-packed in the browser, so a re-render would
+      # fetch the same rows again and redraw the same points in place - which
+      # is exactly the flicker at the end of a scroll gesture.
+      if (needs_refetch(xr, coords$xrange)) coords$xrange <- xr
     })
     
     loc_width <- reactiveVal(600)
@@ -532,16 +563,17 @@ zoom <- function(data, ens_db,
     # `width` argument R packs against); biotype rebuilds the widget instead,
     # see output$locus above.
 
-    # chrom highlight
-    observeEvent(coords$xrange, {
-      req(input$show_chrom, coords$chr)
+    # chrom highlight - tracks the window on screen, so it keeps up with
+    # scroll-zooming even when no re-render happens
+    observeEvent(view$xrange, {
+      req(input$show_chrom, view$chr)
       plotlyProxy("chrom", session) %>%
         plotlyProxyInvoke("relayout",
                           list(shapes = list(
                             list(type = "rect",
                                  line = list(width = 1, color = "#00CD00"),
-                                 x0 = coords$xrange[1] / 1e6,
-                                 x1 = coords$xrange[2] / 1e6, y0 = 0, y1 = 1,
+                                 x0 = view$xrange[1] / 1e6,
+                                 x1 = view$xrange[2] / 1e6, y0 = 0, y1 = 1,
                                  xref = "x", yref = "paper", layer = "below")
                           )))
     })
@@ -679,6 +711,21 @@ plotly_manhattan <- function(obj,
                                 ticks = "outside",
                                 zeroline = FALSE, showline = TRUE),
                    shapes = hline)
+}
+
+
+#' Does the window on screen need data the loaded window does not hold?
+#'
+#' `locus()` returns every datapoint inside the window it was called with, so
+#' any view contained within that window can be drawn from what the browser
+#' already has. Only a view reaching past either edge needs a fresh query.
+#'
+#' @param view_xr Numeric length-2, the window currently displayed.
+#' @param loaded_xr Numeric length-2, the window `locus()` was called with.
+#' @return `TRUE` if a re-query is needed.
+#' @noRd
+needs_refetch <- function(view_xr, loaded_xr) {
+  view_xr[1] < loaded_xr[1] || view_xr[2] > loaded_xr[2]
 }
 
 
