@@ -31,6 +31,7 @@ Imports:
     grid,
     gtools,
     htmltools,
+    htmlwidgets,
     IRanges,
     LDlinkR,
     memoise,
@@ -47,8 +48,11 @@ Suggests:
     AnnotationDbi,
     AnnotationHub,
     EnsDb.Hsapiens.v75,
+    jsonlite,
     knitr,
     org.Hs.eg.db,
-    rmarkdown
+    rmarkdown,
+    testthat (>= 3.0.0)
 VignetteBuilder: knitr
+Config/testthat/edition: 3
 Config/roxygen2/version: 8.0.0
