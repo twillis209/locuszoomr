@@ -399,9 +399,14 @@ zoom <- function(data, ens_db,
       # plotlyProxy() instead would leave that payload stale, and the next
       # zoom/pan would silently re-pack the pre-filter genes back in.
       biotype <- input_biotype()
+      # maxrows: locus_plotly() defaults to 8, which drops a lot of genes on a
+      # dense locus - a 1 Mb window round IRF5 needs 14 rows at this width, and
+      # 21 in a narrow viewport. The gene panel here is 0.4 * 600px = 240px, so
+      # 12 rows leaves ~19px each, comfortable for the 9.8px labels; much above
+      # that and the labels start colliding with the row above.
       locus_plotly(loc1, filter_gene_biotype = biotype, pcutoff = pcutoff,
                    width = width, eqtl_gene = eqtl_gene, beta = eqtl_beta,
-                   add_hover = add_hover, scheme = locscheme,
+                   add_hover = add_hover, scheme = locscheme, maxrows = 12,
                    dynamic = TRUE, scrollZoom = TRUE)
     })
     
