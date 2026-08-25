@@ -484,6 +484,28 @@ zoom <- function(data, ens_db,
             type = "error", duration = 10)
         }
       }
+
+      # Second trait, when supplied. Built from the same window, so it needs
+      # no separate navigation state.
+      loc2 <- NULL
+      if (!is.null(data2)) {
+        loc2 <- try(locus(data = data2, xrange = coords$xrange,
+                          seqname = coords$chr, ens_db = ens_db,
+                          chrom = chrom, pos = pos, p = p, labs = labs),
+                    silent = TRUE)
+        if (inherits(loc2, "try-error") || is.null(loc2$data)) loc2 <- NULL
+      }
+      # One pinned reference colours both panels: link_LD() already ran
+      # against trait 1 above, so this is a match() rather than a second
+      # API call.
+      if (!is.null(loc2) && "ld" %in% colnames(loc1$data)) {
+        ld_ref <- data.frame(snp = loc1$data[, labs],
+                             ld = loc1$data$ld,
+                             stringsAsFactors = FALSE)
+        ld_ref <- ld_ref[!is.na(ld_ref$ld), ]
+        loc2 <- join_ld(loc2, ld_ref, labs)
+      }
+
       loc1$TX$fullname <- expandGenes(loc1$TX, fullnames)
 
       # req(nrow(loc1$data) > 0)
@@ -521,10 +543,18 @@ zoom <- function(data, ens_db,
       # 21 in a narrow viewport. The gene panel here is 0.4 * 600px = 240px, so
       # 12 rows leaves ~19px each, comfortable for the 9.8px labels; much above
       # that and the labels start colliding with the row above.
-      locus_plotly(loc1, filter_gene_biotype = biotype, pcutoff = pcutoff,
-                   width = width, eqtl_gene = eqtl_gene, beta = eqtl_beta,
-                   add_hover = add_hover, scheme = locscheme, maxrows = 12,
-                   dynamic = TRUE, scrollZoom = TRUE)
+      if (is.null(loc2)) {
+        locus_plotly(loc1, filter_gene_biotype = biotype, pcutoff = pcutoff,
+                     width = width, eqtl_gene = eqtl_gene, beta = eqtl_beta,
+                     add_hover = add_hover, scheme = locscheme, maxrows = 12,
+                     dynamic = TRUE, scrollZoom = TRUE)
+      } else {
+        compose_locus_plotly(list(loc1, loc2), ylabs = trait_lab,
+                             filter_gene_biotype = biotype, pcutoff = pcutoff,
+                             width = width, maxrows = 12,
+                             add_hover = add_hover, scheme = locscheme,
+                             dynamic = TRUE, scrollZoom = TRUE)
+      }
     })
     
     output$ui_genes <- renderUI({
