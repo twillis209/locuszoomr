@@ -95,7 +95,25 @@ zoom <- function(data, ens_db,
   # Captured before `data` is reassigned below: once a formal's binding is
   # overwritten, substitute() returns the current value rather than the
   # caller's expression, which would deparse the entire dataset.
-  trait_expr <- c(deparse(substitute(data)), deparse(substitute(data2)))
+  #
+  # Only a bare symbol is kept, and deparse() is never reached for anything
+  # else. Two failure modes both follow from deparsing whatever arrives:
+  #
+  #  - do.call(zoom, list(data = big_df, ...)) without quote = TRUE splices
+  #    the VALUE into the call, so substitute() hands back the data frame
+  #    itself and deparse() serialises every row. A 50,000 row frame gives a
+  #    12,505-element character vector; on a 21M row GWAS it is a
+  #    multi-second stall on every call, single-trait ones included.
+  #  - deparse() returns a VECTOR, so c() flattens the two results together.
+  #    Once trait 1's expression needs more than one line (~60 chars),
+  #    trait_expr[2] is a continuation line of trait 1 rather than trait 2's
+  #    expression at all.
+  #
+  # Labels only ever want a plain short name, so bound the capture rather
+  # than the string: anything else becomes "", which trait_labels() sends to
+  # the positional fallback.
+  sym <- function(e) if (is.name(e)) as.character(e) else ""
+  trait_expr <- c(sym(substitute(data)), sym(substitute(data2)))
   data <- data.frame(data)
   # autodetect headings
   dc <- detect_cols(data, chrom, pos, p, labs)

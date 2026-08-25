@@ -86,6 +86,14 @@ test_that("trait_labels rejects over-long deparsed expressions", {
                c("Trait 1", "df2"))
 })
 
+test_that("trait_labels sends an empty capture to the positional fallback", {
+  # zoom() now passes "" for anything that is not a bare symbol - a spliced
+  # value from do.call(), a call, a literal - rather than deparsing it. That
+  # empty string has to reach the positional label, and must not drag the
+  # second trait's own usable name down with it.
+  expect_equal(trait_labels(NULL, "", "other"), c("Trait 1", "other"))
+})
+
 fake_locus <- function(ids) {
   structure(list(data = data.frame(rsID = ids, stringsAsFactors = FALSE),
                  labs = "rsID"),
