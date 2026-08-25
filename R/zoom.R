@@ -551,6 +551,16 @@ zoom <- function(data, ens_db,
           validate(need(nrow(loc2$data) < 1.5e5,
                         paste0("Too many datapoints in ", trait_lab[2],
                                ". Zoom in.")))
+          # Recombination on the second panel too. The rate is a property of
+          # the locus rather than of either trait, so this is the same line
+          # drawn twice - but reading a peak against the rate is much easier
+          # when the line sits in the panel you are looking at than when it
+          # is one panel away. Costs nothing: link_recomb() memoises on
+          # (genome, xrange, seqname, table), and both loci share all four,
+          # so trait 2 is served from the cache trait 1 just populated.
+          if (isTRUE(input$recomb)) {
+            loc2 <- link_recomb(loc2, recomb = recomb)
+          }
         }
       }
       # One pinned reference colours both panels: link_LD() already ran
