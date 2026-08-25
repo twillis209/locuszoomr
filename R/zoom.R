@@ -203,9 +203,16 @@ zoom <- function(data, ens_db,
                         )),
                  column(1,
                         dropdown(
-                          (if (!is.null(recomb)) {
-                            checkboxInput("recomb", "show recombination rate", value = TRUE)
-                          } else NULL),
+                          # Always offered now. With `recomb` supplied the
+                          # rates come from that object; without it
+                          # link_recomb() queries the UCSC REST API per
+                          # window, which costs about 0.2s and is memoised.
+                          # Defaulted on only for supplied data, since that
+                          # is free and was the previous behaviour, and off
+                          # for the API so nothing goes over the network
+                          # unasked.
+                          checkboxInput("recomb", "show recombination rate",
+                                        value = !is.null(recomb)),
                           # LD is an on-demand action, not a setting: each new
                           # reference variant costs an LDlink API call. Hidden
                           # without a token, and in eQTL mode, where the `ld`
@@ -408,8 +415,16 @@ zoom <- function(data, ens_db,
                      chrom = chrom, pos = pos, p = p, labs = labs)
       validate(need(loc1$data, "Locus contains no SNPs/datapoints"))
       validate(need(nrow(loc1$data) < 1.5e5, "Too many datapoints. Zoom in."))
-      if (!is.null(recomb) && input$recomb) {
+      if (isTRUE(input$recomb)) {
+        # recomb = NULL sends link_recomb() to the UCSC REST API for this
+        # window. It returns the locus with $recomb left NULL on failure
+        # rather than aborting, so the plot simply loses the track - which
+        # would look like the checkbox does nothing, hence the notice.
         loc1 <- link_recomb(loc1, recomb = recomb)
+        if (is.null(loc1$recomb)) {
+          showNotification("No recombination data for this region",
+                           type = "warning", duration = 5)
+        }
       }
       isolate(cur_index(loc1$index_snp))
 
