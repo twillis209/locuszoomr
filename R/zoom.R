@@ -420,17 +420,32 @@ zoom <- function(data, ens_db,
       pin <- ld_snp()
       if (!is.null(pin)) {
         loc1$index_snp <- pin
-        loc1 <- suppressMessages(
-          link_LD(loc1, token = ld_token, pop = ld_pop))
+        # Capture rather than merely suppress link_LD's messages: when the API
+        # declines, its reason ("Variant is not in 1000G reference panel") is
+        # the actionable part, and would otherwise reach only the R console,
+        # which nobody driving a browser is watching. The handler has to wrap
+        # the call directly - a suppressMessages() inside would muffle each
+        # message before this outer handler ever saw it.
+        ld_msg <- NULL
+        loc1 <- withCallingHandlers(
+          link_LD(loc1, token = ld_token, pop = ld_pop),
+          message = function(m) {
+            txt <- conditionMessage(m)
+            if (grepl("^LDproxy:", txt)) {
+              ld_msg <<- trimws(sub("^LDproxy:", "", txt))
+            }
+            invokeRestart("muffleMessage")
+          })
         # The blocking API call is done by here, so drop the "fetching"
         # notice whether it succeeded or not.
         removeNotification("ld_busy")
         if (!"ld" %in% colnames(loc1$data)) {
-          # link_LD wraps the proxy call in try() and returns the locus
-          # untouched on failure, which would otherwise look like the button
-          # did nothing at all.
-          showNotification(paste0("LD lookup failed for ", pin),
-                           type = "error", duration = 6)
+          # link_LD returns the locus untouched when the lookup fails, which
+          # would otherwise look like the button did nothing at all.
+          showNotification(
+            paste0("LD failed for ", pin,
+                   if (is.null(ld_msg)) "" else paste0(" - ", ld_msg)),
+            type = "error", duration = 10)
         }
       }
       loc1$TX$fullname <- expandGenes(loc1$TX, fullnames)

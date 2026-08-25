@@ -67,8 +67,25 @@ link_LD <- function(loc,
   if (method == "proxy") {
     ldp <- try(mem_LDproxy(index_snp, pop = pop, r2d = r2d, token = token,
                            genome_build = genome_build, ...))
-    if (!inherits(ldp, "try-error")) {
+    if (inherits(ldp, "try-error")) {
+      drop_cache(mem_LDproxy)(index_snp, pop = pop, r2d = r2d, token = token,
+                              genome_build = genome_build, ...)
+    } else if (ld_response_ok(ldp, c(snp_col, "R2"))) {
       loc$data$ld <- ldp[match(loc$data[, labs], ldp[, snp_col]), "R2"]
+    } else {
+      # LDlinkR reports API-level failures by returning a one column data
+      # frame holding the message, not by raising a condition, so try() above
+      # sees nothing wrong. Subsetting it for `snp_col` then failed with
+      # "undefined columns selected", which told the caller nothing. The
+      # commonest cause is an index SNP absent from the 1000G panel, which is
+      # routine: locus() picks the most significant SNP in the window, and
+      # rare variants are often not in the reference.
+      emsg <- ld_response_error(ldp)
+      message("LDproxy: ", if (is.na(emsg)) "unexpected response" else emsg)
+      # Do not let a failure sit in the cache: a transient one would otherwise
+      # be replayed for the rest of the session. Mirrors get_recomb().
+      drop_cache(mem_LDproxy)(index_snp, pop = pop, r2d = r2d, token = token,
+                              genome_build = genome_build, ...)
     }
   } else {
     message("Obtaining LD on ", length(rslist), " SNPs. ", appendLF = FALSE)
@@ -84,6 +101,37 @@ link_LD <- function(loc,
   message("Matched ", m, " SNPs (", format(end - start, digits = 3),")")
   
   loc
+}
+
+
+#' Is an LDlinkR response usable, or is it a returned error?
+#'
+#' `LDlinkR` signals API-level failures by returning a data frame that contains
+#' the message rather than by raising a condition, so `try()` does not catch
+#' them. Checking for the columns about to be used catches both that case and
+#' any other unexpected shape, without having to pattern match on the message.
+#'
+#' @param x The value returned by `LDproxy()` or `LDmatrix()`.
+#' @param cols Character vector of column names the caller needs.
+#' @return `TRUE` if `x` is a non-empty data frame containing every column in
+#'   `cols`.
+#' @noRd
+ld_response_ok <- function(x, cols) {
+  is.data.frame(x) && nrow(x) > 0L && all(cols %in% colnames(x))
+}
+
+
+#' Recover the message from a returned LDlinkR error
+#'
+#' @param x The value returned by `LDproxy()` or `LDmatrix()`.
+#' @return The message with its "error:" prefix and surrounding whitespace
+#'   removed, or `NA_character_` if `x` does not look like one.
+#' @noRd
+ld_response_error <- function(x) {
+  if (!is.data.frame(x) || nrow(x) == 0L || ncol(x) == 0L) return(NA_character_)
+  msg <- trimws(as.character(x[1L, 1L]))
+  if (!grepl("^error", msg, ignore.case = TRUE)) return(NA_character_)
+  trimws(sub("^error:?", "", msg, ignore.case = TRUE))
 }
 
 
