@@ -68,3 +68,32 @@ test_that("trait_labels rejects over-long deparsed expressions", {
   expect_equal(trait_labels(NULL, strrep("a", 30), "df2"),
                c("Trait 1", "df2"))
 })
+
+fake_locus <- function(ids) {
+  structure(list(data = data.frame(rsID = ids, stringsAsFactors = FALSE),
+                 labs = "rsID"),
+            class = "locus")
+}
+
+test_that("join_ld attaches r2 by SNP id", {
+  loc2 <- fake_locus(c("rs1", "rs2", "rs3"))
+  ref <- data.frame(snp = c("rs1", "rs3"), ld = c(1, 0.4),
+                    stringsAsFactors = FALSE)
+  out <- join_ld(loc2, ref, "rsID")
+  expect_equal(out$data$ld, c(1, NA, 0.4))
+})
+
+test_that("join_ld leaves unmatched SNPs as NA", {
+  loc2 <- fake_locus(c("rsX", "rsY"))
+  ref <- data.frame(snp = "rs1", ld = 1, stringsAsFactors = FALSE)
+  out <- join_ld(loc2, ref, "rsID")
+  expect_true(all(is.na(out$data$ld)))
+})
+
+test_that("join_ld is a no-op given an empty reference", {
+  loc2 <- fake_locus(c("rs1", "rs2"))
+  ref <- data.frame(snp = character(0), ld = numeric(0),
+                    stringsAsFactors = FALSE)
+  out <- join_ld(loc2, ref, "rsID")
+  expect_false("ld" %in% colnames(out$data))
+})

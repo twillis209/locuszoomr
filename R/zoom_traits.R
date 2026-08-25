@@ -73,3 +73,24 @@ trait_labels <- function(trait_names, expr1, expr2) {
   c(if (usable(expr1)) expr1 else "Trait 1",
     if (usable(expr2)) expr2 else "Trait 2")
 }
+
+#' Apply one trait's LD lookup to another trait
+#'
+#' link_LD() returns r^2 against a single reference variant, keyed by SNP id.
+#' Applying it to the second trait is a match(), not a second API call, which
+#' is what makes colouring both panels from one reference cheap.
+#'
+#' Returns `loc2` untouched for an empty reference, so a failed lookup leaves
+#' no `ld` column and scatter_plotly() keeps its ordinary colouring rather
+#' than switching to an all-grey LD scheme.
+#'
+#' @param loc2 A 'locus' object.
+#' @param ld_ref Data frame with columns `snp` and `ld`.
+#' @param labs Resolved SNP id column name.
+#' @return `loc2`, with an `ld` column when the reference is non-empty.
+#' @noRd
+join_ld <- function(loc2, ld_ref, labs) {
+  if (is.null(ld_ref) || nrow(ld_ref) == 0L) return(loc2)
+  loc2$data$ld <- ld_ref$ld[match(loc2$data[, labs], ld_ref$snp)]
+  loc2
+}
