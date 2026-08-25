@@ -292,7 +292,14 @@ zoom <- function(data, ens_db,
                  ),
                  fluidRow(
                    column(12,
-                          plotlyOutput("locus", width = "95vw", height = 600),
+                          # Taller with two traits: the gene track's share of
+                          # the figure drops from 0.4 to 0.3 there, so at 600px
+                          # its 12 rows would get ~15px each, below what the
+                          # 9.8px labels need. 850px restores ~255px of gene
+                          # track and still leaves ~300px per scatter panel.
+                          # Single-trait geometry is unchanged.
+                          plotlyOutput("locus", width = "95vw",
+                                       height = if (is.null(data2)) 600 else 850),
                           br(), br()
                           # verbatimTextOutput("print")
                    )
@@ -599,9 +606,12 @@ zoom <- function(data, ens_db,
       biotype <- input_biotype()
       # maxrows: locus_plotly() defaults to 8, which drops a lot of genes on a
       # dense locus - a 1 Mb window round IRF5 needs 14 rows at this width, and
-      # 21 in a narrow viewport. The gene panel here is 0.4 * 600px = 240px, so
-      # 12 rows leaves ~19px each, comfortable for the 9.8px labels; much above
-      # that and the labels start colliding with the row above.
+      # 21 in a narrow viewport. 12 rows needs roughly 19px each to stay clear
+      # of the 9.8px labels, and both paths are sized to give it: single trait
+      # is 0.4 * 600px = 240px, two traits 0.3 * 850px = 255px (the 850 comes
+      # from the conditional height on plotlyOutput("locus") above, which
+      # exists for exactly this reason - 0.3 * 600 would be ~15px a row).
+      # Much above 12 and the labels start colliding with the row above.
       if (is.null(loc2)) {
         locus_plotly(loc1, filter_gene_biotype = biotype, pcutoff = pcutoff,
                      width = width, eqtl_gene = eqtl_gene, beta = eqtl_beta,
