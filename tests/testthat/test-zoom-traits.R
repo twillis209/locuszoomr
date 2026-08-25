@@ -49,3 +49,22 @@ test_that("check_same_build skips when too few ids are shared", {
   b <- build_df(paste0("rs", 1:50), 1:50 * 100L + 999L)
   expect_message(check_same_build(a, b, "BP", "rsID"), "too few")
 })
+
+test_that("trait_labels prefers explicit names", {
+  expect_equal(trait_labels(c("AD", "Dizziness"), "x", "y"),
+               c("AD", "Dizziness"))
+})
+
+test_that("trait_labels falls back to the deparsed argument names", {
+  expect_equal(trait_labels(NULL, "ad", "dizzy"), c("ad", "dizzy"))
+})
+
+test_that("trait_labels rejects unusable deparsed expressions", {
+  expect_equal(trait_labels(NULL, 'read_gwas("x.tsv")', "df2"),
+               c("Trait 1", "df2"))
+})
+
+test_that("trait_labels rejects over-long deparsed expressions", {
+  expect_equal(trait_labels(NULL, strrep("a", 30), "df2"),
+               c("Trait 1", "df2"))
+})

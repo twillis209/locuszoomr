@@ -52,3 +52,24 @@ check_same_build <- function(data, data2, pos, labs,
   }
   invisible(TRUE)
 }
+
+#' Resolve panel labels for the two traits
+#'
+#' `deparse(substitute(data))` gives a good label for `zoom(ad, dizzy)` but
+#' an unusable one for `zoom(read_gwas("x.tsv"), df2)`, so anything that is
+#' not a plain short name falls back to a positional label.
+#'
+#' @param trait_names User-supplied labels, or `NULL`.
+#' @param expr1,expr2 Deparsed argument expressions.
+#' @return Character vector of length 2.
+#' @noRd
+trait_labels <- function(trait_names, expr1, expr2) {
+  if (!is.null(trait_names)) {
+    return(rep_len(as.character(trait_names), 2L))
+  }
+  usable <- function(x) {
+    length(x) == 1L && nchar(x) <= 20L && grepl("^[A-Za-z.][A-Za-z0-9._]*$", x)
+  }
+  c(if (usable(expr1)) expr1 else "Trait 1",
+    if (usable(expr2)) expr2 else "Trait 2")
+}
