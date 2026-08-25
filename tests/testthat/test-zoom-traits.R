@@ -129,3 +129,22 @@ test_that("ens_db still binds positionally as the 2nd argument", {
   # matching to bind ens_db, not data2.
   expect_equal(names(formals(zoom))[1:2], c("data", "ens_db"))
 })
+
+test_that("caller expressions are captured before data is reassigned", {
+  # substitute(data) only returns the caller's expression while `data`
+  # still holds its original promise. Once `data <- data.frame(data)` has
+  # run, the formal's binding is overwritten, and substitute() returns the
+  # current *value* instead -- so deparse(substitute(data)) would deparse
+  # the entire (potentially multi-million-row) dataset on every call. This
+  # guards against the trait_expr capture line being moved back down next
+  # to trait_lab, which reads more naturally but silently reintroduces that
+  # unbounded deparse. zoom() itself can't be called here (it launches a
+  # shiny app), so this inspects body(zoom) structurally instead.
+  stmts <- vapply(as.list(body(zoom)), function(e) paste(deparse(e), collapse = " "),
+                  character(1))
+  i_capture <- grep("trait_expr", stmts)[1]
+  i_coerce  <- grep("^data <- data\\.frame\\(data\\)$", stmts)[1]
+  expect_false(is.na(i_capture))
+  expect_false(is.na(i_coerce))
+  expect_lt(i_capture, i_coerce)
+})
