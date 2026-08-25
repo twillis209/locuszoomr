@@ -681,9 +681,25 @@ zoom <- function(data, ens_db,
     })
     
     # Table tab
+    #
+    # Scoped to the window on screen rather than the whole dataset. On a
+    # genome-wide GWAS `data` runs to tens of millions of rows: DT paginates
+    # server-side so it would not ship all of that to the browser, but it
+    # still sorts and filters the full frame on every interaction, and a table
+    # of the locus being looked at is the more useful object anyway. The
+    # subset is a scan over `data`, but this output is suspendWhenHidden by
+    # default, so it only runs while the tab is actually open.
     output$table <- DT::renderDataTable({
-      cols <- colnames(data)[sapply(data, class) == "numeric"]
-      datatable(data) %>% formatSignif(cols, digits = 3)
+      validate(need(!is.null(view$chr) && !is.null(view$xrange),
+                    "Select a locus to see its datapoints."))
+      w <- which(data[, chrom] == view$chr &
+                   data[, pos] >= view$xrange[1] &
+                   data[, pos] <= view$xrange[2])
+      validate(need(length(w) > 0, "No datapoints in this window."))
+      d <- data[w, ]
+      d <- d[order(d[, p]), ]
+      cols <- colnames(d)[vapply(d, is.numeric, logical(1))]
+      datatable(d, rownames = FALSE) %>% formatSignif(cols, digits = 3)
     })
     
     # detect change to x axis range
@@ -795,6 +811,25 @@ manhattan <- function(data,
   }
   
   data$logP <- -log10(data[, p])
+  # p-values that underflowed to zero in the source get clamped to the
+  # smallest representable double before reaching here, and -log10 of that is
+  # 323.3. That is an artefact of the clamp, not a measurement, and a single
+  # such SNP sets the y axis for the entire plot: in a 21M row Alzheimer GWAS
+  # one clamped point stretched the axis to 323 while the largest real value
+  # was 114.5, so real signal occupied the bottom third of the panel.
+  #
+  # Peg them to the largest real value so the axis fits the data, and give
+  # them their own colour level so they still read as off-scale rather than as
+  # a genuine result equal to the strongest measured hit. Only `logP`, which
+  # exists solely for plotting, is touched - the p-value column keeps whatever
+  # the caller clamped it to.
+  clamped <- !is.na(data[, p]) & data[, p] <= 5e-324
+  real_max <- suppressWarnings(max(data$logP[!clamped], na.rm = TRUE))
+  if (any(clamped) && is.finite(real_max)) {
+    data$logP[clamped] <- real_max
+    message(sum(clamped), " p-value(s) below floating point precision, ",
+            "plotted at the largest measured value (", signif(real_max, 4), ")")
+  }
   chrom_list <- mixedsort(unique(data[, chrom]), na.last = NA)
   chrom_list <- as.character(chrom_list)
   
@@ -823,6 +858,11 @@ manhattan <- function(data,
     data$col[data[, p] < pcutoff] <- length(chromCols) + 1
     colScheme <- c(chromCols, sigCol)
   }
+  # Applied after the significance level, which it deliberately overrides: a
+  # clamped point is significant by definition, and the useful thing to convey
+  # is that its value is a floor rather than a measurement. `data` has been
+  # reordered above, so recompute rather than reusing the earlier vector.
+  data$col[!is.na(data[, p]) & data[, p] <= 5e-324] <- length(chromCols) + 2L
   if (length(chrom_list) > 1) {
     xticks <- list(at = chrom_cumsum + 0.5 * (maxpos - minpos), 
                    labels = levels(data[, chrom]))
@@ -838,12 +878,19 @@ manhattan <- function(data,
 plotly_manhattan <- function(obj,
                              labs,
                              scheme = c('royalblue', 'skyblue', 'red'),
+                             clampCol = 'black',
                              xlab = "Chromosome",
                              pcutline = NULL,
                              source = "plotly_manh") {
-  
+
   df <- obj$data
   df$col <- as.factor(df$col)
+  # Appended rather than being part of `scheme` so that callers passing their
+  # own three colours, as the chromosome panel does, keep working unchanged
+  # and still get the extra level when clamped points are present. Levels are
+  # only ever present in the factor when manhattan() assigned them, so the
+  # subset below drops it again when there are none.
+  scheme <- c(scheme, clampCol)
   scheme <- scheme[as.numeric(levels(df$col))]
   if (is.null(obj$xticks)) {
     # single chrom
