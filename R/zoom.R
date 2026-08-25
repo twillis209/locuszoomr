@@ -472,8 +472,15 @@ zoom <- function(data, ens_db,
     observeEvent(c(input$text_go, input$enter), {
       req(input$tex)
       chr <- NULL
-      tex <- input$tex
-      tex <- gsub(" |chr", "", tex, ignore.case = TRUE)
+      # Two cleaned forms, because they need different treatment. `tex` also
+      # strips "chr" so "chr7:1-2" parses, but that would maim a gene whose
+      # symbol contains it - CHRNA5 would become NA5 - so symbol and rsID
+      # lookups use `q`, which only trims surrounding whitespace. Matching
+      # those two branches against the raw input$tex, as they used to, meant a
+      # stray leading space made " IRF5" fall through every branch and return
+      # silently.
+      q <- trimws(input$tex)
+      tex <- gsub(" |chr", "", input$tex, ignore.case = TRUE)
       if (grepl(":", tex) && grepl("-", tex)) {
         # chr & range
         ss <- strsplit(tex, ":")[[1]]
@@ -484,9 +491,12 @@ zoom <- function(data, ens_db,
         ss <- strsplit(tex, ":")[[1]]
         chr <- ss[1]
         xr <- as.integer(ss[2]) + c(-5e5, 5e5)
-      } else if (any(w <- which(toupper(gene_set) == toupper(input$tex)))) {
+      } else if (any(w <- which(toupper(gene_set) == toupper(q)))) {
         gene <- gene_set[w]
-        if (input$tex != gene) updateTextInput(session, "tex", value = gene)
+        # compare the raw input, so a box holding " irf5" is still normalised
+        if (!identical(input$tex, gene)) {
+          updateTextInput(session, "tex", value = gene)
+        }
         loc <- genes(edb, filter = AnnotationFilterList(
           GeneNameFilter(gene),
           SeqNameFilter(c(1:22, 'X', 'Y'))))
@@ -494,8 +504,8 @@ zoom <- function(data, ens_db,
         chr <- names(seqlengths(loc))
         m <- mean(c(start(loc), end(loc)))
         xr <- as.integer(c(m - 5e5, m + 5e5))
-      } else if (grepl("rs", input$tex)) {
-        w <- which(data[, labs] == input$tex)
+      } else if (grepl("rs", q)) {
+        w <- which(data[, labs] == q)
         if (length(w) > 0) {
           chr <- data[w[1], chrom]
           xr <- data[w[1], pos] + c(-5e5, 5e5)
