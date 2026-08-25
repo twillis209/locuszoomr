@@ -110,6 +110,15 @@ zoom <- function(data, ens_db,
     data2 <- data.frame(data2)
     check_trait_cols(data2, c(chrom, pos, p, labs), "data2")
     check_same_build(data, data2, pos, labs)
+    if (!is.null(eqtl_gene)) {
+      # The two-trait panels share a single colour scheme sized for LD/
+      # default colouring (3 levels), not for one-colour-per-eQTL-gene.
+      # Rather than error, output$locus falls back to the default scheme
+      # for both panels when data2 is set - so warn instead of silently
+      # dropping the requested eQTL colouring.
+      warning("eQTL colouring is disabled when data2 is supplied: the two ",
+              "trait panels share one colour scheme", call. = FALSE)
+    }
   }
   if (is.null(eqtl_gene)) {
     data[, labs] <- unique_snps(data, labs, chrom)
@@ -549,10 +558,18 @@ zoom <- function(data, ens_db,
                      add_hover = add_hover, scheme = locscheme, maxrows = 12,
                      dynamic = TRUE, scrollZoom = TRUE)
       } else {
+        # locscheme is sized for eQTL colouring (1 grey + one colour per
+        # eQTL gene significant in this window, a per-window count unrelated
+        # to 3). eqtl_gene is deliberately not forwarded to
+        # compose_locus_plotly(), so its panels always use scatter_plotly()'s
+        # default branch, which requires exactly the 3-tuple below -
+        # anything else makes its factor(levels = scheme) call error.
         compose_locus_plotly(list(loc1, loc2), ylabs = trait_lab,
                              filter_gene_biotype = biotype, pcutoff = pcutoff,
                              width = width, maxrows = 12,
-                             add_hover = add_hover, scheme = locscheme,
+                             add_hover = add_hover,
+                             scheme = if (is.null(eqtl_gene)) locscheme
+                                      else c('grey', 'dodgerblue', 'red'),
                              dynamic = TRUE, scrollZoom = TRUE)
       }
     })
