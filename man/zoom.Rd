@@ -20,6 +20,8 @@ zoom(
   add_hover = NULL,
   mh_points = 1e+05,
   recomb = NULL,
+  ld_token = Sys.getenv("LDLINK_TOKEN"),
+  ld_pop = "EUR",
   AnnotationDb = "org.Hs.eg.db"
 )
 }
@@ -67,6 +69,17 @@ plotly hover text for scatter points.}
 \code{1e5}.}
 
 \item{recomb}{Optional \code{GRanges} class object of recombination data.}
+
+\item{ld_token}{Personal access token for the LDlink API, available from
+\url{https://ldlink.nih.gov/?tab=apiaccess}. When empty the LD controls are
+hidden. LD is fetched on demand, not automatically: pressing "Get LD"
+pins the current index SNP as the reference variant and colours points by
+r^2 with it. The reference stays pinned while you pan and zoom, so the
+colouring keeps its meaning and repeat queries are served from the
+\code{memoise} cache rather than the API.}
+
+\item{ld_pop}{1000 Genomes population used for LD. Defaults to \code{"EUR"}. See
+\code{LDlinkR::LDproxy()} for the available codes.}
 
 \item{AnnotationDb}{An \code{AnnotationDb} gene annotation database, specified
 either as a character string or as an \code{AnnotationDb} class object, used to

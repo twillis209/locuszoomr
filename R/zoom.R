@@ -38,6 +38,15 @@
 #' @param mh_points Number of points to display in manhattan plot. Default is
 #'   `1e5`.
 #' @param recomb Optional `GRanges` class object of recombination data.
+#' @param ld_token Personal access token for the LDlink API, available from
+#'   <https://ldlink.nih.gov/?tab=apiaccess>. When empty the LD controls are
+#'   hidden. LD is fetched on demand, not automatically: pressing "Get LD"
+#'   pins the current index SNP as the reference variant and colours points by
+#'   r^2 with it. The reference stays pinned while you pan and zoom, so the
+#'   colouring keeps its meaning and repeat queries are served from the
+#'   `memoise` cache rather than the API.
+#' @param ld_pop 1000 Genomes population used for LD. Defaults to `"EUR"`. See
+#'   `LDlinkR::LDproxy()` for the available codes.
 #' @param AnnotationDb An `AnnotationDb` gene annotation database, specified
 #'   either as a character string or as an `AnnotationDb` class object, used to
 #'   obtain expanded gene names. The ensembl database specified in `ens_db` is
@@ -50,6 +59,7 @@
 #' @importFrom shiny textInput conditionalPanel h5 runApp debounce isolate
 #' @importFrom shiny renderUI reactiveValues reactive observe observeEvent radioButtons
 #' @importFrom shiny reactiveVal validate need renderText updateTextInput outputOptions
+#' @importFrom shiny showNotification removeNotification
 #' @importFrom shinyFeedback useShinyFeedback hideFeedback showFeedback
 #' @importFrom shinyWidgets pickerInput pickerOptions dropdown
 #' @importFrom shinycssloaders withSpinner
@@ -70,6 +80,8 @@ zoom <- function(data, ens_db,
                  add_hover = NULL,
                  mh_points = 1e5,
                  recomb = NULL,
+                 ld_token = Sys.getenv("LDLINK_TOKEN"),
+                 ld_pop = "EUR",
                  AnnotationDb = "org.Hs.eg.db") {
   data <- data.frame(data)
   # autodetect headings
@@ -122,6 +134,11 @@ zoom <- function(data, ens_db,
   yrange <- range(manhat$data$logP, na.rm = TRUE)
   ymax <- yrange[2] + diff(yrange) * 0.05
   
+  # LD needs a token, and its colouring would replace the eQTL gene colours
+  # (scatter_plotly() switches to LD_scheme whenever an `ld` column exists),
+  # so it is offered only when neither applies.
+  show_ld <- nzchar(ld_token) && is.null(eqtl_gene)
+
   js <- '$(document).on("keydown", function(e) {
           if(e.keyCode == 13) {
             Shiny.onInputChange("enter", Math.random());
@@ -171,6 +188,10 @@ zoom <- function(data, ens_db,
                         ),
                  column(3,
                         textOutput("pos"),
+                        # LD lives behind the gear, so surface the pinned
+                        # reference variant here: otherwise the colouring
+                        # changes meaning with no visible reason why.
+                        textOutput("ld_status"),
                         align = "centre", style='margin-top:7px;'),
                  column(4,
                         splitLayout(
@@ -184,6 +205,19 @@ zoom <- function(data, ens_db,
                         dropdown(
                           (if (!is.null(recomb)) {
                             checkboxInput("recomb", "show recombination rate", value = TRUE)
+                          } else NULL),
+                          # LD is an on-demand action, not a setting: each new
+                          # reference variant costs an LDlink API call. Hidden
+                          # without a token, and in eQTL mode, where the `ld`
+                          # column would override the per-gene colours.
+                          (if (show_ld) {
+                            list(h5("Linkage disequilibrium"),
+                                 actionButton("ld_get", "Get LD",
+                                              icon = icon("circle-nodes"),
+                                              class = "btn-primary btn-sm"),
+                                 actionButton("ld_clear", "Clear",
+                                              class = "btn-default btn-sm"),
+                                 br(), br())
                           } else NULL),
                           pickerInput("biotype", h5("Select gene biotypes"),
                                       choices = biotypes, selected = biotypes,
@@ -356,7 +390,17 @@ zoom <- function(data, ens_db,
     input_biotype <- reactive({input$biotype}) %>% debounce(2000)
     
     genes <- reactiveValues(x = NULL)
-    
+
+    # The pinned LD reference variant, NULL when LD is off. Pinning rather than
+    # following loc1$index_snp matters twice over: locus() recomputes the index
+    # SNP for every window, so an unpinned reference would silently re-base the
+    # colouring on a pan, and holding it fixed keeps link_LD()'s arguments
+    # identical, so mem_LDproxy serves later windows from cache instead of
+    # hitting the API again.
+    ld_snp <- reactiveVal(NULL)
+    # Published out of the render so the "Get LD" button knows what to pin.
+    cur_index <- reactiveVal(NULL)
+
     output$locus <- renderPlotly({
       req(coords$chr %in% chr_set, coords$xrange)
       loc1 <- locus(data = data, xrange = coords$xrange,
@@ -366,6 +410,28 @@ zoom <- function(data, ens_db,
       validate(need(nrow(loc1$data) < 1.5e5, "Too many datapoints. Zoom in."))
       if (!is.null(recomb) && input$recomb) {
         loc1 <- link_recomb(loc1, recomb = recomb)
+      }
+      isolate(cur_index(loc1$index_snp))
+
+      # LD, when a reference variant has been pinned. link_LD() keys off
+      # loc$index_snp, so override it rather than letting this window's own
+      # index SNP take over. scatter_plotly() picks the colouring up on its
+      # own once loc1$data has an `ld` column.
+      pin <- ld_snp()
+      if (!is.null(pin)) {
+        loc1$index_snp <- pin
+        loc1 <- suppressMessages(
+          link_LD(loc1, token = ld_token, pop = ld_pop))
+        # The blocking API call is done by here, so drop the "fetching"
+        # notice whether it succeeded or not.
+        removeNotification("ld_busy")
+        if (!"ld" %in% colnames(loc1$data)) {
+          # link_LD wraps the proxy call in try() and returns the locus
+          # untouched on failure, which would otherwise look like the button
+          # did nothing at all.
+          showNotification(paste0("LD lookup failed for ", pin),
+                           type = "error", duration = 6)
+        }
       }
       loc1$TX$fullname <- expandGenes(loc1$TX, fullnames)
 
@@ -466,6 +532,32 @@ zoom <- function(data, ens_db,
       req(view$chr %in% chr_set, view$xrange)
       paste0("chr ", view$chr, ": ", view$xrange[1], " - ",
              view$xrange[2])
+    })
+
+    # Pin the current window's index SNP and let output$locus do the fetch.
+    # The first call blocks for several seconds on the LDlink API, so say so:
+    # the notification is put up here, before the render is invalidated, and
+    # torn down by the observer below once the new plot has been sent.
+    observeEvent(input$ld_get, {
+      snp <- cur_index()
+      if (is.null(snp) || is.na(snp)) {
+        showNotification("No index SNP in view", type = "warning")
+        return()
+      }
+      showNotification(paste0("Fetching LD for ", snp, " (", ld_pop, ")"),
+                       id = "ld_busy", duration = NULL)
+      ld_snp(snp)
+    })
+
+    observeEvent(input$ld_clear, {
+      ld_snp(NULL)
+      removeNotification("ld_busy")
+    })
+
+    output$ld_status <- renderText({
+      snp <- ld_snp()
+      if (is.null(snp)) return("")
+      paste0("LD: ", snp, " (", ld_pop, ")")
     })
     
     # parse text box
