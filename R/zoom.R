@@ -152,7 +152,12 @@ zoom <- function(data, ens_db,
   }
   
   message("Generating Manhattan plot")
+  # Union, not trait 1's alone: output$locus gates on `coords$chr %in%
+  # chr_set`, so a chromosome present only in trait 2 would make clicking
+  # its own manhattan do nothing at all. Trait 1 simply renders empty there,
+  # which is honest and already handled.
   chr_set <- unique(data[, chrom])
+  if (!is.null(data2)) chr_set <- union(chr_set, unique(data2[, chrom]))
   if (is.character(ens_db)) {
     if (!ens_db %in% (.packages())) {
       stop("Ensembl database not loaded. Try: library(", ens_db, ")",
@@ -188,6 +193,18 @@ zoom <- function(data, ens_db,
                       npoints = mh_points)
   yrange <- range(manhat$data$logP, na.rm = TRUE)
   ymax <- yrange[2] + diff(yrange) * 0.05
+
+  # Second genome-wide manhattan, so both traits can be scanned for
+  # coinciding peaks before drilling in. Thinned independently: each trait's
+  # own top mh_points SNPs are the interesting ones, and thinning trait 2 by
+  # trait 1's selection would hide exactly the signals that differ.
+  manhat2 <- NULL
+  if (!is.null(data2)) {
+    data2[which(data2[, p] < 5e-324), p] <- 5e-324
+    manhat2 <- manhattan(data2, chrom, pos, p, labs, pcutoff = pcutoff,
+                         npoints = mh_points)
+    yrange2 <- range(manhat2$data$logP, na.rm = TRUE)
+  }
   
   # LD needs a token, and its colouring would replace the eQTL gene colours
   # (scatter_plotly() switches to LD_scheme whenever an `ld` column exists),
@@ -213,12 +230,27 @@ zoom <- function(data, ens_db,
       tabPanel("Plot",
                fluidRow(
                  column(11,
+                        # 300px for one trait; 220 each for two. Two full
+                        # height strips would put 600px of manhattan above a
+                        # locus panel that is itself 850px in two-trait mode,
+                        # so the thing you navigated to would start below the
+                        # fold. 220px still reads at genome scale.
                         withSpinner(
-                          plotlyOutput("manhattan", width = "85vw", height = "300px"),
-                          type = 8, size = 0.7)
+                          plotlyOutput("manhattan", width = "85vw",
+                                       height = if (is.null(data2)) "300px" else "220px"),
+                          type = 8, size = 0.7),
+                        (if (!is.null(data2)) {
+                          withSpinner(
+                            plotlyOutput("manhattan2", width = "85vw",
+                                         height = "220px"),
+                            type = 8, size = 0.7)
+                        } else NULL)
                  ),
                  column(1,
                         br(),
+                        # One pair of buttons drives both strips - the point
+                        # of stacking them is to read them together, so
+                        # zooming one and not the other would defeat it.
                         actionButton("m_zoomin", NULL, icon = icon("magnifying-glass-plus")),
                         actionButton("m_zoomout", NULL, icon = icon("magnifying-glass-minus"))
                  )),
@@ -314,10 +346,28 @@ zoom <- function(data, ens_db,
   server <- function(input, output, session) {
     
     output$manhattan <- renderPlotly({
-      plotly_manhattan(manhat, labs, pcutline = NULL) %>%
+      p <- plotly_manhattan(manhat, labs, pcutline = NULL) %>%
+        config(displayModeBar = FALSE)
+      # Name the strip only when there are two, so the single-trait plot is
+      # untouched.
+      if (!is.null(data2)) {
+        p <- p %>% layout(yaxis = list(title = paste0(trait_lab[1],
+                                                      "  -log<sub>10</sub> P")))
+      }
+      p
+    })
+
+    output$manhattan2 <- renderPlotly({
+      req(!is.null(manhat2))
+      # Distinct source, so the click handler below can tell which trait was
+      # clicked and look the SNP up in the right dataset.
+      plotly_manhattan(manhat2, labs, pcutline = NULL,
+                       source = "plotly_manh2") %>%
+        layout(yaxis = list(title = paste0(trait_lab[2],
+                                           "  -log<sub>10</sub> P"))) %>%
         config(displayModeBar = FALSE)
     })
-    
+
     output$ui_chrom <- renderUI({
       req(input$show_chrom, coords$chr)
       fluidRow(
@@ -392,7 +442,20 @@ zoom <- function(data, ens_db,
         goto(data[w[1], chrom], data[w[1], pos] + c(-5e5, 5e5))
       }
     })
-    
+
+    # Clicking the second trait's strip navigates the same way. The lookup
+    # goes to data2, not data: a SNP can be present in one trait and absent
+    # from the other, and resolving trait 2's key against trait 1 would
+    # silently do nothing for exactly those SNPs.
+    observe({
+      s <- event_data("plotly_click", source = "plotly_manh2")
+      req(s, !is.null(data2))
+      w <- which(data2[, labs] == s$key)
+      if (length(w) > 0) {
+        goto(data2[w[1], chrom], data2[w[1], pos] + c(-5e5, 5e5))
+      }
+    })
+
     observe({
       s <- event_data("plotly_click", source = "plotly_chrom")
       req(s)
@@ -403,30 +466,49 @@ zoom <- function(data, ens_db,
     })
     
     # zoom manhattan y axis
-    m_ylim <- reactiveValues(max = yrange[2])
-    
+    #
+    # One pair of buttons drives both strips, but each keeps its OWN limit
+    # and its own full range: two GWAS routinely differ by an order of
+    # magnitude in power, so forcing a shared scale would flatten the weaker
+    # trait to nothing. What is shared is the gesture, not the axis.
+    m_ylim <- reactiveValues(max = yrange[2],
+                             max2 = if (is.null(data2)) NULL else yrange2[2])
+
+    # Push a y range to one strip. Factored out because there are now four
+    # combinations of (zoom in, zoom out) x (trait 1, trait 2) and they
+    # differ only in which limit and which output they touch.
+    m_relayout <- function(id, lo, hi, title) {
+      yr <- c(lo, hi)
+      yr <- yr + diff(yr) * c(-0.05, 0.05)
+      plotlyProxy(id, session) %>%
+        plotlyProxyInvoke("relayout",
+                          list(yaxis = list(range = yr,
+                                            title = title,
+                                            ticks = "outside",
+                                            zeroline = FALSE, showline = TRUE)))
+    }
+
+    m_title <- function(i) {
+      if (is.null(data2)) "-log<sub>10</sub> P" else
+        paste0(trait_lab[i], "  -log<sub>10</sub> P")
+    }
+
     observeEvent(input$m_zoomin, {
       m_ylim$max <- pmax(m_ylim$max * 0.88, 5)
-      yr <- c(yrange[1], m_ylim$max)
-      yr <- yr + diff(yr) * c(-0.05, 0.05)
-      plotlyProxy("manhattan", session) %>%
-        plotlyProxyInvoke("relayout",
-                          list(yaxis = list(range = yr,
-                                            title = "-log<sub>10</sub> P",
-                                            ticks = "outside",
-                                            zeroline = FALSE, showline = TRUE)))
+      m_relayout("manhattan", yrange[1], m_ylim$max, m_title(1))
+      if (!is.null(data2)) {
+        m_ylim$max2 <- pmax(m_ylim$max2 * 0.88, 5)
+        m_relayout("manhattan2", yrange2[1], m_ylim$max2, m_title(2))
+      }
     })
-    
+
     observeEvent(input$m_zoomout, {
       m_ylim$max <- pmin(m_ylim$max / 0.88, yrange[2])
-      yr <- c(yrange[1], m_ylim$max)
-      yr <- yr + diff(yr) * c(-0.05, 0.05)
-      plotlyProxy("manhattan", session) %>%
-        plotlyProxyInvoke("relayout",
-                          list(yaxis = list(range = yr,
-                                            title = "-log<sub>10</sub> P",
-                                            ticks = "outside",
-                                            zeroline = FALSE, showline = TRUE)))
+      m_relayout("manhattan", yrange[1], m_ylim$max, m_title(1))
+      if (!is.null(data2)) {
+        m_ylim$max2 <- pmin(m_ylim$max2 / 0.88, yrange2[2])
+        m_relayout("manhattan2", yrange2[1], m_ylim$max2, m_title(2))
+      }
     })
     
     # zoom chrom y axis
