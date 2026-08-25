@@ -114,3 +114,16 @@ test_that("join_ld is a no-op given an empty reference", {
   out <- join_ld(loc2, ref, "rsID")
   expect_false("ld" %in% colnames(out$data))
 })
+
+test_that("zoom gains data2 and trait_names arguments", {
+  f <- formals(zoom)
+  expect_true("data2" %in% names(f))
+  expect_true("trait_names" %in% names(f))
+  expect_null(eval(f$data2))
+  expect_null(eval(f$trait_names))
+})
+
+test_that("data2 sits immediately after data in the signature", {
+  nm <- names(formals(zoom))
+  expect_equal(nm[1:2], c("data", "data2"))
+})

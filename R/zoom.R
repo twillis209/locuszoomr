@@ -38,6 +38,13 @@
 #' @param mh_points Number of points to display in manhattan plot. Default is
 #'   `1e5`.
 #' @param recomb Optional `GRanges` class object of recombination data.
+#' @param data2 Optional second dataframe of GWAS results, shown as an extra
+#'   panel over the same window so two traits can be compared. Must use the
+#'   same column names as `data`; there is no second column mapping. Both
+#'   datasets must be on the same genome build, which is checked at startup.
+#' @param trait_names Optional length-2 character vector labelling the two
+#'   panels. Defaults to the deparsed argument names, so `zoom(ad, dizzy)`
+#'   labels itself.
 #' @param ld_token Personal access token for the LDlink API, available from
 #'   <https://ldlink.nih.gov/?tab=apiaccess>. When empty the LD controls are
 #'   hidden. LD is fetched on demand, not automatically: pressing "Get LD"
@@ -69,7 +76,7 @@
 #' @importFrom stats as.formula
 #' @export
 
-zoom <- function(data, ens_db,
+zoom <- function(data, data2 = NULL, ens_db,
                  chrom = NULL, pos = NULL, p = NULL, labs = NULL,
                  scheme = c('royalblue', 'skyblue', 'red'),
                  pcutoff = 5e-8,
@@ -82,6 +89,7 @@ zoom <- function(data, ens_db,
                  recomb = NULL,
                  ld_token = Sys.getenv("LDLINK_TOKEN"),
                  ld_pop = "EUR",
+                 trait_names = NULL,
                  AnnotationDb = "org.Hs.eg.db") {
   data <- data.frame(data)
   # autodetect headings
@@ -90,6 +98,15 @@ zoom <- function(data, ens_db,
   pos <- dc$pos
   p <- dc$p
   labs <- dc$labs
+  # Resolved before any of the single-trait setup below, so a mismatched
+  # second dataset fails now rather than as an empty panel later.
+  trait_expr <- c(deparse(substitute(data)), deparse(substitute(data2)))
+  trait_lab <- trait_labels(trait_names, trait_expr[1], trait_expr[2])
+  if (!is.null(data2)) {
+    data2 <- data.frame(data2)
+    check_trait_cols(data2, c(chrom, pos, p, labs), "data2")
+    check_same_build(data, data2, pos, labs)
+  }
   if (is.null(eqtl_gene)) {
     data[, labs] <- unique_snps(data, labs, chrom)
   } else {
