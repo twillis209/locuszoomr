@@ -22,6 +22,8 @@ zoom(
   recomb = NULL,
   ld_token = Sys.getenv("LDLINK_TOKEN"),
   ld_pop = "EUR",
+  data2 = NULL,
+  trait_names = NULL,
   AnnotationDb = "org.Hs.eg.db"
 )
 }
@@ -80,6 +82,15 @@ colouring keeps its meaning and repeat queries are served from the
 
 \item{ld_pop}{1000 Genomes population used for LD. Defaults to \code{"EUR"}. See
 \code{LDlinkR::LDproxy()} for the available codes.}
+
+\item{data2}{Optional second dataframe of GWAS results, shown as an extra
+panel over the same window so two traits can be compared. Must use the
+same column names as \code{data}; there is no second column mapping. Both
+datasets must be on the same genome build, which is checked at startup.}
+
+\item{trait_names}{Optional length-2 character vector labelling the two
+panels. Defaults to the deparsed argument names, so \code{zoom(ad, dizzy)}
+labels itself.}
 
 \item{AnnotationDb}{An \code{AnnotationDb} gene annotation database, specified
 either as a character string or as an \code{AnnotationDb} class object, used to
