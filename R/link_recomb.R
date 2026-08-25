@@ -9,8 +9,10 @@
 #'   use.
 #' @param recomb Optional `GRanges` class object of recombination data.
 #' @details
-#' Uses the `rtracklayer` package to query UCSC genome browser for recombination
-#' rate data.
+#' Queries the [UCSC REST API](https://genome.ucsc.edu/goldenPath/help/api.html)
+#' for recombination rate data. If the API cannot be reached, `link_recomb()`
+#' falls back to reading the relevant range directly from the UCSC bigWig file
+#' using `rtracklayer::import.bw()`.
 #' 
 #' Possible options for `table` for hg19 are `"hapMapRelease24YRIRecombMap"`,
 #' `"hapMapRelease24CEURecombMap"`, `"hapMapRelease24CombinedRecombMap"` (the
@@ -27,22 +29,23 @@
 #' converted to useable `GRanges` objects using `rtracklayer::import.bw()` (see
 #' the vignette).
 #' 
-#' Sometimes `rtracklayer` generates intermittent API errors or warnings: try
-#' calling `link_recomb()` again. If warnings persist restart your R session.
-#' Errors are handled gracefully using `try()` to allow users to wrap
-#' `link_recomb()` in a loop without quitting halfway. Error messages are still
-#' shown. Successful API calls are cached using `memoise` to reduce API
+#' Sometimes UCSC generates intermittent API errors: try calling `link_recomb()`
+#' again. Errors are handled gracefully to allow users to wrap `link_recomb()`
+#' in a loop without quitting halfway; `NULL` is returned and the error message
+#' is still shown. Successful API calls are cached using `memoise` to reduce API
 #' requests.
 #' 
 #' @returns A list object of class 'locus'. Recombination data is added as list
 #'   element `recomb`.
-#' @importFrom GenomeInfoDb genome<- seqnames
+#' @importFrom GenomeInfoDb seqnames
 #' @importFrom GenomicRanges GRanges
 #' @importFrom IRanges IRanges
-#' @importFrom rtracklayer browserSession ucscTableQuery getTable
+#' @importFrom jsonlite fromJSON
+#' @importFrom curl curl_fetch_memory new_handle
+#' @importFrom rtracklayer import.bw
 #' @importFrom memoise drop_cache
 #' @export
-#'
+#' 
 link_recomb <- function(loc,
                         genome = loc$genome,
                         table = NULL,
@@ -70,20 +73,128 @@ link_recomb <- function(loc,
 }
 
 
+# default recombination track for each genome build
+recomb_table <- function(gen, table = NULL) {
+  if (!is.null(table)) return(table)
+  switch(gen,
+         "hg38" = "recomb1000GAvg",
+         "hg19" = "hapMapRelease24CombinedRecombMap",
+         stop("no default recombination table for genome build '", gen,
+              "': specify `table`", call. = FALSE))
+}
+
+
+# UCSC REST API endpoint, see
+# https://genome.ucsc.edu/goldenPath/help/api.html
+ucsc_track_url <- function(gen, table, seqname, xrange,
+                           api = "https://api.genome.ucsc.edu") {
+  start <- max(0, round(xrange[1]))
+  end <- max(start, round(xrange[2]))
+  paste0(api, "/getData/track",
+         "?genome=", gen,
+         ";track=", table,
+         ";chrom=", seqname,
+         ";start=", format(start, scientific = FALSE),
+         ";end=", format(end, scientific = FALSE))
+}
+
+
+# parse the JSON returned by /getData/track into the columns previously
+# returned by rtracklayer::getTable()
+parse_ucsc_track <- function(txt, table) {
+  res <- fromJSON(txt, simplifyVector = TRUE)
+  if (!is.null(res$error)) {
+    stop("UCSC API: ", paste(res$error, collapse = " "), call. = FALSE)
+  }
+  if (!table %in% names(res)) {
+    stop("UCSC API returned no '", table, "' data", call. = FALSE)
+  }
+  dat <- res[[table]]
+  cols <- c("chrom", "start", "end", "value")
+  if (!is.data.frame(dat)) {
+    # an empty range gives an empty JSON array
+    if (length(dat) == 0) {
+      empty <- data.frame(chrom = character(0), start = numeric(0),
+                          end = numeric(0), value = numeric(0))
+      return(empty)
+    }
+    stop("unexpected UCSC API response for track '", table, "'", call. = FALSE)
+  }
+  if (!all(cols %in% colnames(dat))) {
+    stop("UCSC API response for track '", table, "' is missing columns: ",
+         paste(setdiff(cols, colnames(dat)), collapse = ", "), call. = FALSE)
+  }
+  if (isTRUE(res$maxItemsReached)) {
+    warning("UCSC API truncated the response: recombination data is incomplete",
+            call. = FALSE)
+  }
+  dat[, cols]
+}
+
+
+# primary route: UCSC REST API
+query_recomb_api <- function(gen, table, seqname, xrange) {
+  url <- ucsc_track_url(gen, table, seqname, xrange)
+  h <- new_handle(timeout = 120L, connecttimeout = 20L, accept_encoding = "gzip")
+  res <- curl_fetch_memory(url, handle = h)
+  txt <- rawToChar(res$content)
+  Encoding(txt) <- "UTF-8"
+  if (res$status_code >= 400 && !grepl("^\\s*\\{", txt)) {
+    # not JSON, so no UCSC error message to relay
+    stop("UCSC API request failed with HTTP status ", res$status_code,
+         call. = FALSE)
+  }
+  parse_ucsc_track(txt, table)
+}
+
+
+# fallback route: byte-range read of the UCSC bigWig file
+recomb_bw_url <- function(gen, table) {
+  dir <- switch(gen, "hg38" = "recombRate", "hg19" = "decode", NULL)
+  if (is.null(dir)) return(NULL)
+  paste0("https://hgdownload.soe.ucsc.edu/gbdb/", gen, "/", dir, "/",
+         table, ".bw")
+}
+
+
+query_recomb_bw <- function(gen, table, seqname, xrange) {
+  url <- recomb_bw_url(gen, table)
+  if (is.null(url)) return(NULL)
+  gr <- GRanges(seqnames = seqname,
+                ranges = IRanges(start = max(1, round(xrange[1]) + 1),
+                                 end = round(xrange[2])))
+  bw <- import.bw(url, which = gr)
+  data.frame(chrom = as.character(seqnames(bw)),
+             start = start(bw) - 1,
+             end = end(bw),
+             value = bw$score)
+}
+
+
 query_recomb <- function(gen, xrange, seqname, table = NULL) {
-  if (is.null(table)) {
-    table <- if (gen == "hg38") {"recomb1000GAvg"
-    } else if (gen == "hg19") "hapMapRelease24CombinedRecombMap"
+  table <- tryCatch(recomb_table(gen, table), error = function(e) e)
+  if (inherits(table, "error")) {
+    message(conditionMessage(table))
+    return(NULL)
   }
   if (!grepl("chr", seqname)) seqname <- paste0("chr", seqname)
-  gr <- GRanges(ranges = IRanges(start = xrange[1], end = xrange[2]),
-                seqnames = seqname)
   message("Retrieving recombination data from UCSC")
-  session <- browserSession("UCSC")
-  genome(session) <- gen
-  query <- ucscTableQuery(session, table = table, range = gr)
-  gtab <- try(getTable(query))
-  if (inherits(gtab, "try-error")) return(NULL)
+  gtab <- tryCatch(query_recomb_api(gen, table, seqname, xrange),
+                   error = function(e) e)
+  if (inherits(gtab, "error")) {
+    api_msg <- conditionMessage(gtab)
+    gtab <- tryCatch(query_recomb_bw(gen, table, seqname, xrange),
+                     error = function(e) e)
+    if (inherits(gtab, "error") || is.null(gtab)) {
+      message("Unable to retrieve recombination data from UCSC.\n",
+              "REST API: ", api_msg,
+              if (inherits(gtab, "error")) {
+                paste0("\nbigWig fallback: ", conditionMessage(gtab))
+              })
+      return(NULL)
+    }
+    message("UCSC REST API unavailable, used bigWig fallback")
+  }
   gtab
 }
 

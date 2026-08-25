@@ -24,8 +24,10 @@ element \code{recomb}.
 Adds recombination data to a 'locus' object by querying UCSC genome browser.
 }
 \details{
-Uses the \code{rtracklayer} package to query UCSC genome browser for recombination
-rate data.
+Queries the \href{https://genome.ucsc.edu/goldenPath/help/api.html}{UCSC REST API}
+for recombination rate data. If the API cannot be reached, \code{link_recomb()}
+falls back to reading the relevant range directly from the UCSC bigWig file
+using \code{rtracklayer::import.bw()}.
 
 Possible options for \code{table} for hg19 are \code{"hapMapRelease24YRIRecombMap"},
 \code{"hapMapRelease24CEURecombMap"}, \code{"hapMapRelease24CombinedRecombMap"} (the
@@ -42,10 +44,9 @@ The link to the hg38 download folder is
 converted to useable \code{GRanges} objects using \code{rtracklayer::import.bw()} (see
 the vignette).
 
-Sometimes \code{rtracklayer} generates intermittent API errors or warnings: try
-calling \code{link_recomb()} again. If warnings persist restart your R session.
-Errors are handled gracefully using \code{try()} to allow users to wrap
-\code{link_recomb()} in a loop without quitting halfway. Error messages are still
-shown. Successful API calls are cached using \code{memoise} to reduce API
+Sometimes UCSC generates intermittent API errors: try calling \code{link_recomb()}
+again. Errors are handled gracefully to allow users to wrap \code{link_recomb()}
+in a loop without quitting halfway; \code{NULL} is returned and the error message
+is still shown. Successful API calls are cached using \code{memoise} to reduce API
 requests.
 }

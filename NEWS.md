@@ -1,6 +1,15 @@
 News
 =====
 
+# locuszoomr 0.3.11
+* `link_recomb()` now queries the UCSC REST API directly instead of going
+through `rtracklayer::ucscTableQuery()`, fixing the "subscript out of bounds"
+error (issue #47).
+* `link_recomb()` falls back to a byte-range read of the UCSC bigWig file via
+`rtracklayer::import.bw()` if the REST API cannot be reached.
+* Failed UCSC queries now report the reason instead of a cryptic error.
+* Added unit tests for `link_recomb()`.
+
 # locuszoomr 0.3.10
 ###### 18/07/2026
 
