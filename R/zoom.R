@@ -569,10 +569,44 @@ zoom <- function(data, ens_db,
       removeNotification("ld_busy")
     })
 
+    # Re-base LD onto a clicked point.
+    #
+    # Only while LD is already armed: unarmed, a stray click anywhere on the
+    # plot would silently cost a multi-second API call. Arming happens even
+    # when "Get LD" itself failed, which is what makes this usable at a locus
+    # whose index SNP is absent from 1000G - press Get LD, get the rejection,
+    # then click a common variant nearby.
+    #
+    # scatter_plotly() sets key = loc$labs on its point traces, so the clicked
+    # SNP arrives directly. The gene track and recombination traces share
+    # source = "plotly_locus" but set no key, so requiring one is what keeps a
+    # click on a gene line from being taken as a reference variant.
+    #
+    # ld_snp() is read through isolate() so this observer depends only on the
+    # click. Reading it reactively would re-enter on every re-base, see the
+    # same stale event_data(), and only be stopped by the identical() guard
+    # below - workable, but relying on a value comparison to terminate a loop
+    # that never needs to start.
+    observe({
+      s <- event_data("plotly_click", source = "plotly_locus")
+      req(s, !is.null(s$key))
+      cur <- isolate(ld_snp())
+      req(!is.null(cur))
+      snp <- as.character(s$key)[1]
+      req(!is.na(snp), nzchar(snp))
+      if (identical(snp, cur)) return()
+      showNotification(paste0("Fetching LD for ", snp, " (", ld_pop, ")"),
+                       id = "ld_busy", duration = NULL)
+      ld_snp(snp)
+    })
+
     output$ld_status <- renderText({
       snp <- ld_snp()
       if (is.null(snp)) return("")
-      paste0("LD: ", snp, " (", ld_pop, ")")
+      # The hint earns its place: nothing else signals that the scatter is
+      # clickable, and re-basing is the only way past an index SNP that the
+      # reference panel does not contain.
+      paste0("LD: ", snp, " (", ld_pop, ") - click a point to re-base")
     })
     
     # parse text box
