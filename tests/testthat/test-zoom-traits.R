@@ -123,7 +123,9 @@ test_that("zoom gains data2 and trait_names arguments", {
   expect_null(eval(f$trait_names))
 })
 
-test_that("data2 sits immediately after data in the signature", {
-  nm <- names(formals(zoom))
-  expect_equal(nm[1:2], c("data", "data2"))
+test_that("ens_db still binds positionally as the 2nd argument", {
+  # data2 must NOT occupy position 2: ens_db has no default, so an existing
+  # caller writing zoom(mydata, "EnsDb.Hsapiens.v75") relies on positional
+  # matching to bind ens_db, not data2.
+  expect_equal(names(formals(zoom))[1:2], c("data", "ens_db"))
 })

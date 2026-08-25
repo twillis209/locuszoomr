@@ -76,7 +76,7 @@
 #' @importFrom stats as.formula
 #' @export
 
-zoom <- function(data, data2 = NULL, ens_db,
+zoom <- function(data, ens_db,
                  chrom = NULL, pos = NULL, p = NULL, labs = NULL,
                  scheme = c('royalblue', 'skyblue', 'red'),
                  pcutoff = 5e-8,
@@ -89,8 +89,13 @@ zoom <- function(data, data2 = NULL, ens_db,
                  recomb = NULL,
                  ld_token = Sys.getenv("LDLINK_TOKEN"),
                  ld_pop = "EUR",
+                 data2 = NULL,
                  trait_names = NULL,
                  AnnotationDb = "org.Hs.eg.db") {
+  # Captured before `data` is reassigned below: once a formal's binding is
+  # overwritten, substitute() returns the current value rather than the
+  # caller's expression, which would deparse the entire dataset.
+  trait_expr <- c(deparse(substitute(data)), deparse(substitute(data2)))
   data <- data.frame(data)
   # autodetect headings
   dc <- detect_cols(data, chrom, pos, p, labs)
@@ -100,7 +105,6 @@ zoom <- function(data, data2 = NULL, ens_db,
   labs <- dc$labs
   # Resolved before any of the single-trait setup below, so a mismatched
   # second dataset fails now rather than as an empty panel later.
-  trait_expr <- c(deparse(substitute(data)), deparse(substitute(data2)))
   trait_lab <- trait_labels(trait_names, trait_expr[1], trait_expr[2])
   if (!is.null(data2)) {
     data2 <- data.frame(data2)
