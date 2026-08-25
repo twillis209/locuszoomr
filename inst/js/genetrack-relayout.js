@@ -318,6 +318,42 @@
         if (busy) { pending = true; return; }
         schedule();
       });
+
+      /* Re-pack once, now, on the initial render.
+       *
+       * R packs the track with a device-based heuristic: cex.width in
+       * genetrack_ly() is derived from par("pin")[1], the width of the
+       * default graphics device, which has no relationship to the browser
+       * the widget ends up in. The result is close enough to look plausible
+       * but is not the packing LZR.layout() produces from real canvas text
+       * metrics - 46 labels vs 48 on a dense locus. So the widget used to
+       * arrive packed one way and silently reorganise into another the
+       * moment anything fired a relayout, which could be a plain pan. Which
+       * genes get dropped past cfg.maxrows differed between the two.
+       *
+       * Reconciling here means every paint of a given window agrees. It also
+       * closes the gap where the "N genes not shown" annotation could not
+       * appear until the user had interacted, since it is only ever added
+       * inside apply().
+       *
+       * apply() needs a laid-out axis and returns early without one. Inside a
+       * hidden tab or a display:none ancestor there is no layout yet and
+       * requestAnimationFrame does not fire, so bound the retries and give up
+       * quietly: the relayout listener above will correct the packing as soon
+       * as the container is shown and plotly resizes it. */
+      var packTries = 0;
+      var initialPack = function () {
+        if (dead) return;
+        var ax0 = gd._fullLayout && gd._fullLayout[xkey];
+        if (!ax0 || !(ax0._length > 0)) {
+          if (packTries++ < 60 && global.requestAnimationFrame) {
+            global.requestAnimationFrame(initialPack);
+          }
+          return;
+        }
+        try { apply(); } catch (err) { fail(err); }
+      };
+      initialPack();
     } catch (err) {
       fail(err);
     }
