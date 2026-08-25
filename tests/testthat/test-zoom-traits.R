@@ -50,6 +50,23 @@ test_that("check_same_build skips when too few ids are shared", {
   expect_message(check_same_build(a, b, "BP", "rsID"), "too few")
 })
 
+test_that("check_same_build tolerates NA positions when enough ids remain comparable", {
+  ids <- paste0("rs", 1:2000)
+  p <- seq_along(ids) * 100L
+  a <- build_df(ids, p)
+  p2 <- p
+  p2[1:500] <- NA               # 1500 comparable ids remain, all agree
+  b <- build_df(ids, p2)
+  expect_silent(check_same_build(a, b, "BP", "rsID"))
+})
+
+test_that("check_same_build skips when every shared id has an NA position", {
+  ids <- paste0("rs", 1:2000)
+  a <- build_df(ids, seq_along(ids) * 100L)
+  b <- build_df(ids, rep(NA_integer_, length(ids)))
+  expect_message(check_same_build(a, b, "BP", "rsID"), "too few")
+})
+
 test_that("trait_labels prefers explicit names", {
   expect_equal(trait_labels(c("AD", "Dizziness"), "x", "y"),
                c("AD", "Dizziness"))

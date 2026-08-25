@@ -38,7 +38,7 @@ check_trait_cols <- function(data2, cols, name = "data2") {
 check_same_build <- function(data, data2, pos, labs,
                              min_shared = 1000L, min_agree = 0.9) {
   i <- match(data2[, labs], data[, labs])
-  ok <- !is.na(i)
+  ok <- !is.na(i) & !is.na(data2[, pos]) & !is.na(data[i, pos])
   n <- sum(ok)
   if (n < min_shared) {
     message("Skipping genome build check: too few shared SNP ids (", n, ")")
