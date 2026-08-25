@@ -126,16 +126,23 @@ zoom <- function(data, ens_db,
   trait_lab <- trait_labels(trait_names, trait_expr[1], trait_expr[2])
   if (!is.null(data2)) {
     data2 <- data.frame(data2)
-    check_trait_cols(data2, c(chrom, pos, p, labs), "data2")
+    # add_hover is included because it is forwarded to BOTH panels:
+    # scatter_plotly() does data[, i] for each name, so a column present in
+    # `data` but not `data2` errors with "undefined columns selected" on the
+    # first render - the late failure this startup check exists to prevent.
+    check_trait_cols(data2, c(chrom, pos, p, labs, add_hover), "data2")
     check_same_build(data, data2, pos, labs)
-    if (!is.null(eqtl_gene)) {
+    if (!is.null(eqtl_gene) || !is.null(eqtl_beta)) {
       # The two-trait panels share a single colour scheme sized for LD/
       # default colouring (3 levels), not for one-colour-per-eQTL-gene.
       # Rather than error, output$locus falls back to the default scheme
       # for both panels when data2 is set - so warn instead of silently
-      # dropping the requested eQTL colouring.
-      warning("eQTL colouring is disabled when data2 is supplied: the two ",
-              "trait panels share one colour scheme", call. = FALSE)
+      # dropping the requested eQTL colouring. `eqtl_beta`'s up/down
+      # triangles go the same way: compose_locus_plotly() is not passed
+      # `beta` either.
+      warning("eQTL colouring and beta-direction markers are disabled when ",
+              "data2 is supplied: the two trait panels share one colour ",
+              "scheme, so `eqtl_gene`/`eqtl_beta` are ignored", call. = FALSE)
     }
   }
   if (is.null(eqtl_gene)) {
@@ -520,7 +527,24 @@ zoom <- function(data, ens_db,
                           seqname = coords$chr, ens_db = ens_db,
                           chrom = chrom, pos = pos, p = p, labs = labs),
                     silent = TRUE)
-        if (inherits(loc2, "try-error") || is.null(loc2$data)) loc2 <- NULL
+        if (inherits(loc2, "try-error") || is.null(loc2$data)) {
+          loc2 <- NULL
+          # Falling back to the single-trait layout silently would make
+          # "trait 2 has no data here" indistinguishable from "trait 2 has
+          # no signal here" - the exact discrimination the second panel
+          # exists to support. The single-panel fallback stays (an empty
+          # plotly panel reads worse than none), but say why it happened.
+          # try(silent = TRUE) also routes genuine locus() failures here, so
+          # the wording covers both.
+          showNotification(
+            paste0(trait_lab[2], " has no datapoints in this window; ",
+                   "showing ", trait_lab[1], " only"),
+            type = "warning", duration = 5)
+        } else {
+          validate(need(nrow(loc2$data) < 1.5e5,
+                        paste0("Too many datapoints in ", trait_lab[2],
+                               ". Zoom in.")))
+        }
       }
       # One pinned reference colours both panels: link_LD() already ran
       # against trait 1 above, so this is a match() rather than a second
@@ -531,6 +555,14 @@ zoom <- function(data, ens_db,
                              stringsAsFactors = FALSE)
         ld_ref <- ld_ref[!is.na(ld_ref$ld), ]
         loc2 <- join_ld(loc2, ld_ref, labs)
+        # Panel 2 gets the same reference variant marked, not its own
+        # lowest-p SNP: scatter_plotly() draws index_snp in a distinct
+        # "index" style, and marking a variant that is not the LD reference
+        # would contradict the colouring the panel is showing. Only on the
+        # LD path - without LD, trait 2's own index SNP is the right mark.
+        # `pin` can still be NULL here if the caller's own data happened to
+        # carry an `ld` column, hence the guard.
+        if (!is.null(pin)) loc2$index_snp <- pin
       }
 
       loc1$TX$fullname <- expandGenes(loc1$TX, fullnames)
