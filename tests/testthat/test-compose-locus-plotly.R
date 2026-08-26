@@ -100,6 +100,47 @@ test_that("the gene track still resolves with two traits and recombination", {
   }
 })
 
+test_that("each panel's recombination axis overlays its own panel", {
+  skip_if_no_ensdb()
+  # zoom() draws recombination on BOTH panels: the rate is a property of the
+  # locus, not the trait. subplot() renumbers the axes but not the
+  # `overlaying` references scatter_plotly() wrote, so panel 2's
+  # recombination axis arrives pointing at panel 1's y - which draws trait
+  # 2's line inside trait 1's panel, exactly on top of the identical line
+  # already there. It looks like the bottom panel has no recombination at all.
+  loci <- lapply(two_loci(), add_fake_recomb)
+  p <- compose_locus_plotly(loci, c("A", "B"), dynamic = FALSE)
+
+  lay <- p$x$layout
+  nms <- grep("^yaxis[0-9]*$", names(lay), value = TRUE)
+  overlays <- nms[vapply(nms, function(n) !is.null(lay[[n]]$overlaying),
+                         logical(1))]
+  # One recombination axis per trait.
+  expect_equal(length(overlays), 2L)
+  for (n in overlays) {
+    target <- paste0("yaxis", sub("^y", "", lay[[n]]$overlaying))
+    expect_equal(lay[[target]]$domain, lay[[n]]$domain,
+                 info = paste(n, "overlays", lay[[n]]$overlaying))
+  }
+  # ...and they are distinct: both pointing at "y" is the bug.
+  expect_equal(length(unique(vapply(overlays,
+                                    function(n) lay[[n]]$overlaying,
+                                    character(1)))), 2L)
+})
+
+test_that("the gene track still resolves with recombination on both panels", {
+  skip_if_no_ensdb()
+  loci <- lapply(two_loci(), add_fake_recomb)
+  p <- compose_locus_plotly(loci, c("A", "B"), dynamic = TRUE)
+  idx <- p$jsHooks$render[[1]]$data$idx
+
+  # Four scatter axes now (y/y2 for trait 1, y3/y4 for trait 2), so the gene
+  # track lands on y5. Derived by resolve_genetrack_idx(), not assumed.
+  expect_equal(idx$yaxis, "y5")
+  expect_equal(idx$xaxis, "x")
+  expect_equal(idx$labelTrace, idx$lineTrace + 1L)
+})
+
 test_that("a single locus composes as two panels", {
   skip_if_no_ensdb()
   p <- compose_locus_plotly(two_loci()[1], "A", dynamic = FALSE)

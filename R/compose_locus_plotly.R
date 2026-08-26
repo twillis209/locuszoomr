@@ -40,6 +40,7 @@ compose_locus_plotly <- function(loci, ylabs, heights = NULL,
 
   sp <- plotly::subplot(c(panels, list(g)), shareX = TRUE, nrows = n + 1L,
                         heights = heights, titleY = TRUE, margin = 0)
+  sp <- remap_overlaying_yaxes(sp)
 
   out <- if (!dynamic || is.null(gt)) {
     sp
@@ -58,4 +59,45 @@ compose_locus_plotly <- function(loci, ylabs, heights = NULL,
   }
   if (scrollZoom) out <- plotly::config(out, scrollZoom = TRUE)
   out
+}
+
+
+#' Repoint secondary y axes at their own panel after subplot()
+#'
+#' plotly::subplot() renumbers the y axes it merges, but leaves each axis's
+#' `overlaying` reference reading whatever it said in the source plot.
+#' scatter_plotly() draws the recombination line on "y2" overlaying "y", so in
+#' every panel after the first that reference survives as a pointer to panel
+#' 1's axis. plotly then honours it literally: the axis takes panel 1's
+#' domain, and the second trait's recombination line is drawn inside the first
+#' trait's panel, on top of the identical line already there - so it looks
+#' like recombination is simply missing below.
+#'
+#' Each merged axis does carry its own correct `domain`, so match on that: the
+#' base (non-overlaying) axis sharing an overlay's domain is the panel it was
+#' built for. Axes that cannot be matched unambiguously are left alone.
+#'
+#' Only affects two or more scatter panels. With one scatter above a gene
+#' track, subplot() leaves the first panel's axes as "y"/"y2" and the
+#' reference is right by construction, which is why locus_plotly() has never
+#' needed this.
+#'
+#' @param p A 'plotly' object returned by [plotly::subplot()].
+#' @return `p` with each `overlaying` reference repointed.
+#' @noRd
+remap_overlaying_yaxes <- function(p) {
+  lay <- p$x$layout
+  nms <- grep("^yaxis[0-9]*$", names(lay), value = TRUE)
+  base <- nms[vapply(nms, function(n) is.null(lay[[n]]$overlaying), logical(1))]
+  for (n in setdiff(nms, base)) {
+    dom <- lay[[n]]$domain
+    if (is.null(dom)) next
+    hit <- base[vapply(base,
+                       function(b) isTRUE(all.equal(lay[[b]]$domain, dom)),
+                       logical(1))]
+    if (length(hit) == 1L) {
+      p$x$layout[[n]]$overlaying <- sub("^yaxis", "y", hit)
+    }
+  }
+  p
 }
