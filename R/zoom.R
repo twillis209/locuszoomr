@@ -918,8 +918,7 @@ zoom <- function(data, ens_db,
       validate(need(length(w) > 0, "No datapoints in this window."))
       d <- data[w, ]
       d <- d[order(d[, p]), ]
-      cols <- colnames(d)[vapply(d, is.numeric, logical(1))]
-      datatable(d, rownames = FALSE) %>% formatSignif(cols, digits = 3)
+      locus_table(d, coord_cols = c(chrom, pos))
     })
     
     # detect change to x axis range
