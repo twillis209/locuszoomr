@@ -1,26 +1,9 @@
 
-# Position indexing for zoom()
-#
-# zoom() navigates by (chromosome, window) many times over the life of one
-# session, and every navigation used to scan the whole dataset:
-#
-#   data[which(data[, chrom] == seqname), ]                    # locus():171
-#   data[which(data[, pos] > x1 & data[, pos] < x2), ]         # locus():172
-#
-# On a 21M row GWAS each `==` allocates an 84 MB logical vector, `which()` an
-# integer index, and the subset a fresh data frame - per trait, per
-# navigation, plus the same scan again in output$table. Measured, the plot
-# build takes 0.15s most of the time and ~1.6s whenever that allocation
-# triggers a major collection, which is what a user perceives as lag.
-#
-# Sorting by (chromosome, position) once at startup makes every window a
-# CONTIGUOUS range of rows, reachable by binary search. The scans go away and
-# so does the garbage they generate.
-#
-# Deliberately confined to zoom(). locus() keeps its own filters - it has
-# nowhere to hold an index across calls, and it is Myles's function.
-# Handed a pre-windowed frame, its filters run over a few thousand rows and
-# cost nothing.
+# Position indexing for zoom(). At GWAS scale, filtering by chromosome and
+# position scans tens of millions of rows per navigation; sorting once at
+# startup makes every window a contiguous row range found by binary search.
+# Confined to zoom(): locus() is unchanged and simply receives pre-windowed
+# rows.
 
 
 #' Sort a dataset by locus and record each chromosome's row range
@@ -33,9 +16,7 @@
 #'   `coords$chr`.
 #' @noRd
 build_locus_index <- function(data, chrom, pos) {
-  # method = "radix" rather than the default: on 21M rows the default shell
-  # sort is minutes, radix is seconds. It also fixes the collation order for
-  # character chromosomes, so the index does not depend on the locale.
+  # radix: orders of magnitude faster at this scale, and locale-independent
   o <- order(as.character(data[, chrom]), data[, pos], method = "radix")
   data <- data[o, , drop = FALSE]
   ch <- as.character(data[, chrom])
@@ -50,10 +31,9 @@ build_locus_index <- function(data, chrom, pos) {
 
 #' Row numbers covering one window, by binary search
 #'
-#' Bounds are INCLUSIVE, which is deliberately laxer than `locus()`'s strict
-#' `>` / `<`. The rows are handed to `locus()`, which re-applies its own
-#' filter, so a variant sitting exactly on a boundary is dropped there rather
-#' than here - and the indexed path returns exactly what the scan did.
+#' Bounds are inclusive - laxer than `locus()`'s strict `>` / `<` - so
+#' boundary variants are trimmed by `locus()` itself and the indexed path
+#' matches the full scan exactly.
 #'
 #' @param idx The list returned by [build_locus_index()].
 #' @param pos Column name for position.
@@ -67,9 +47,7 @@ locus_rows <- function(idx, pos, seqname, xrange) {
   lo <- idx$index$first[hit]
   hi <- idx$index$last[hit]
   p <- idx$data[lo:hi, pos]
-  # findInterval() needs a sorted vector, which p is by construction.
-  # +1 on the left because findInterval() returns the count of values <= x,
-  # i.e. the index of the last value at or below the window's start.
+  # findInterval() returns the count of values <= x, hence +1 on the left
   i <- findInterval(xrange[1], p, left.open = TRUE) + 1L
   j <- findInterval(xrange[2], p)
   if (i > j) return(integer(0))

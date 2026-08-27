@@ -64,23 +64,11 @@ compose_locus_plotly <- function(loci, ylabs, heights = NULL,
 
 #' Repoint secondary y axes at their own panel after subplot()
 #'
-#' plotly::subplot() renumbers the y axes it merges, but leaves each axis's
-#' `overlaying` reference reading whatever it said in the source plot.
-#' scatter_plotly() draws the recombination line on "y2" overlaying "y", so in
-#' every panel after the first that reference survives as a pointer to panel
-#' 1's axis. plotly then honours it literally: the axis takes panel 1's
-#' domain, and the second trait's recombination line is drawn inside the first
-#' trait's panel, on top of the identical line already there - so it looks
-#' like recombination is simply missing below.
-#'
-#' Each merged axis does carry its own correct `domain`, so match on that: the
-#' base (non-overlaying) axis sharing an overlay's domain is the panel it was
-#' built for. Axes that cannot be matched unambiguously are left alone.
-#'
-#' Only affects two or more scatter panels. With one scatter above a gene
-#' track, subplot() leaves the first panel's axes as "y"/"y2" and the
-#' reference is right by construction, which is why locus_plotly() has never
-#' needed this.
+#' subplot() renumbers the y axes it merges but not their `overlaying`
+#' references, so every recombination axis after panel 1's still points at
+#' "y" and its line is drawn inside panel 1. Rematch each overlay to the base
+#' axis sharing its domain; ambiguous matches are left alone. Single-panel
+#' plots are unaffected, which is why locus_plotly() never needed this.
 #'
 #' @param p A 'plotly' object returned by [plotly::subplot()].
 #' @return `p` with each `overlaying` reference repointed.

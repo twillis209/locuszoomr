@@ -197,10 +197,8 @@ scatter_plotly <- function(loc,
     if (is.null(beta)) {
       # standard plotly
       p <- plot_ly(source = "plotly_locus", height = height) %>%
-        # scatter plot. Drawn first so the recombination line lands on top of
-        # it: with webGL every trace shares one canvas, so paint order is
-        # trace order, and a line added first disappears under a dense window
-        # of points. `colors`/`symbols` ride on whichever trace comes first.
+        # Scatter first: paint order is trace order, so the recombination
+        # line stays on top. `colors`/`symbols` ride on the first trace.
         add_trace(x = data[, loc$pos] / 1e6, y = data[, loc$yvar],
                   color = data$bg, colors = scheme,
                   symbol = data$symbol, symbols = symbols,

@@ -189,12 +189,8 @@ zoom <- function(data, ens_db,
   # apply min_p_snp to data for manhat?
   # smallest floating point
   data[which(data[, p] < 5e-324), p] <- 5e-324
-  # Sort by (chromosome, position) once, so every window the user navigates
-  # to is a contiguous run of rows found by binary search rather than a scan
-  # of the whole dataset. See R/zoom_index.R. `data` is replaced by the
-  # sorted copy: nothing downstream depends on the incoming row order
-  # (manhattan() re-sorts, the index SNP is a which.max, the table orders by
-  # p), and leaving both around would double the memory.
+  # The sorted copy replaces `data` (keeping both would double the memory);
+  # nothing downstream depends on row order. See R/zoom_index.R.
   data_idx <- build_locus_index(data, chrom, pos)
   data <- data_idx$data
   manhat <- manhattan(data, chrom, pos, p, labs, pcutoff = pcutoff,
@@ -397,8 +393,7 @@ zoom <- function(data, ens_db,
     
     output$chrom <- renderPlotly({
       req(coords$chr)
-      # A whole chromosome is one contiguous run in the index, so this is a
-      # slice rather than a scan of all 21M rows.
+      # a whole chromosome is one contiguous run in the index
       chr_rows <- data_idx$index[match(as.character(coords$chr),
                                        data_idx$index$chrom), ]
       req(nrow(chr_rows) == 1L, !is.na(chr_rows$first))
@@ -570,10 +565,8 @@ zoom <- function(data, ens_db,
 
     output$locus <- renderPlotly({
       req(coords$chr %in% chr_set, coords$xrange)
-      # Pre-windowed by binary search, so locus()'s own two filters run over a
-      # few thousand rows instead of the whole dataset. Its strict > / <
-      # bounds still apply, and locus_rows() is inclusive, so the result is
-      # identical to passing the full frame.
+      # Pre-windowed via the index; locus() re-applies its strict bounds, so
+      # the result matches passing the full frame.
       loc1 <- locus(data = locus_subset(data_idx, pos, coords$chr,
                                         coords$xrange),
                      xrange = coords$xrange,
@@ -930,12 +923,8 @@ zoom <- function(data, ens_db,
     # genome-wide GWAS `data` runs to tens of millions of rows: DT paginates
     # server-side so it would not ship all of that to the browser, but it
     # still sorts and filters the full frame on every interaction, and a table
-    # of the locus being looked at is the more useful object anyway. Served
-    # from the index, so opening the tab costs a binary search rather than a
-    # scan of the whole dataset.
-    #
-    # `view`, not `coords`: the table should describe what is on screen, which
-    # after a zoom-in is narrower than the window that was loaded.
+    # of the locus being looked at is the more useful object anyway.
+    # `view`, not `coords`: the table describes what is on screen.
     output$table <- DT::renderDataTable({
       validate(need(!is.null(view$chr) && !is.null(view$xrange),
                     "Select a locus to see its datapoints."))
