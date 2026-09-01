@@ -130,14 +130,9 @@
       var xkey = LZR.axisKey(P.idx.xaxis);
       var yref = P.idx.yaxis;
 
-      /* Shapes that are not ours, captured once. Every update rebuilds the
-       * array as base.concat(exons), so stored indices never go stale.
-       * shapeIdx serialises as a bare number, not a length-1 array, when the
-       * gene panel has exactly one shape (jsonlite auto_unbox); normalise to
-       * an array before relying on .indexOf(). Use `== null` rather than
-       * `||` here: 0 is a valid (and the most common) shape index, and 0 is
-       * falsy, so `P.idx.shapeIdx || []` would silently discard exactly the
-       * single-shape-at-index-0 case this normalisation exists for. */
+      /* Shapes that are not ours, captured once; every update rebuilds the
+       * array as base.concat(exons). `== null`, not `||`: 0 is a valid
+       * shape index, and jsonlite may deliver shapeIdx as a bare number. */
       var idxs = [].concat(P.idx.shapeIdx == null ? [] : P.idx.shapeIdx);
       var all = (gd.layout.shapes || []);
       var base = [];
@@ -148,18 +143,10 @@
 
       var busy = false, timer = null, pending = false, lastKey = null;
 
-      /* Plotly.relayout(gd, {shapes: ..., annotations: ...}) inside apply()
-       * below re-emits 'plotly_relayout' on this same gd from inside its own
-       * .then() chain, while `busy` is still true. That self-event now takes
-       * the `pending` path (see the listener below) rather than being
-       * dropped outright, so *something* has to stop it from re-triggering
-       * apply() forever. This function is that something: it recognises an
-       * event as self-emitted, structurally, by checking that every key on
-       * the update object is one we ourselves write. Do not rely on the
-       * no-op range/length guard inside apply() for this instead — that
-       * guard exists for a different, unrelated reason (see the comment at
-       * its call site) and is not a safe substitute: relaxing or removing it
-       * must not be able to reopen this loop. */
+      /* Recognises our own {shapes, annotations} relayout, which would
+       * otherwise re-enter the listener and re-trigger apply() forever.
+       * This is the structural loop-breaker; the no-op guard in apply() is
+       * a cosmetic optimisation and not a safe substitute. */
       function isSelfUpdate(upd) {
         if (!upd) return false;
         var keys = Object.keys(upd);
@@ -181,30 +168,16 @@
         var ax = gd._fullLayout[xkey];
         var rng = ax.range;
         var len = ax._length;
-        /* Hidden-container guard: inside a Bootstrap tabset, flexdashboard
-         * page, or any display:none ancestor, Plotly.Plots.resize() (fired
-         * on tab switch) can emit 'plotly_relayout' while this axis has
-         * zero (or as-yet-unset) pixel length. Neither failure mode throws,
-         * so fail()/catch() never sees it: len === 0 makes pxPerData 0 and
-         * every gene's footprint [-Infinity, +Infinity], so everything
-         * clashes and collapses to one gene per row (silently dropping the
-         * rest past maxrows); len === undefined makes pxPerData NaN, so no
-         * clash comparison is ever true and every gene lands on row 1,
-         * stacked on top of each other. Bail out before any of that,
-         * *before* `busy` is set below, so neither it nor `pending` is left
-         * stuck by this early return. */
+        /* Hidden-container guard: a display:none ancestor (tab switch)
+         * can emit 'plotly_relayout' while the axis has zero or unset
+         * pixel length. Neither throws, so catch() never sees it: len 0
+         * gives every gene an infinite footprint (one gene per row), len
+         * undefined gives pxPerData NaN (all genes on row 1). Bail before
+         * `busy` is set so it cannot be left stuck. */
         if (!(len > 0) || !isFinite(rng[0]) || !isFinite(rng[1])) return;
-        /* No-op guard: dragmode toggles and legend clicks fire
-         * plotly_relayout without changing the x range or the axis's
-         * rendered pixel length, so skip the re-pack in that case. A window
-         * resize is NOT such a no-op: it changes `ax._length` while leaving
-         * `rng` unchanged, and pxPerData (hence every label-width
-         * calculation below) is derived from `_length`, so the cache key
-         * must include it too, not just the range. This guard is purely a
-         * performance/cosmetic optimisation — it is NOT what stops the
-         * self-triggered update loop described above; that termination is
-         * structural, via isSelfUpdate() on the listener, and must keep
-         * working even if this guard is later relaxed or removed. */
+        /* No-op guard for dragmode toggles and legend clicks. `len` is in
+         * the key because a window resize changes `_length` but not the
+         * range, and pxPerData depends on it. */
         if (lastKey !== null &&
             rng[0] === lastKey[0] && rng[1] === lastKey[1] && len === lastKey[2]) {
           return;
@@ -253,19 +226,6 @@
           }
         }
 
-        /* KNOWN UNFIXED LIMITATION: this annotation branch only executes
-         * inside apply(), which itself only runs in response to a
-         * 'plotly_relayout' event (see gd.on(...) below and the initial
-         * onRender wiring in R/genetrack_relayout.R). It never runs on the
-         * INITIAL render — the widget is handed to the browser already
-         * built by R, with no relayout event to trigger a re-pack. That is
-         * exactly the view where truncation (rows beyond maxrows) is most
-         * likely, since R packed at a possibly-too-narrow `width`. So on
-         * first paint there is no on-plot "N genes not shown" annotation
-         * at all; the only truncation signal available to the user at that
-         * point is the console message() emitted R-side in
-         * R/genetrack_ly.R ("N tracks needed to show all genes"), which is
-         * invisible unless the browser/R console is open. */
         var ann = baseAnn.slice();
         if (res.rows.length === 0) {
           ann.push(LZR.note('No genes in view', P));
@@ -274,35 +234,20 @@
         }
 
         busy = true;
-        /* One Plotly.update(), not restyle -> restyle -> relayout chained by
-         * .then(). Each call in that chain repainted the WHOLE figure, so a
-         * single re-pack cost three full redraws, all landing together 100ms
-         * after the gesture stopped (schedule()'s debounce). On a plot with a
-         * scatter panel above the gene track that reads as the points being
-         * drawn three more times in place the moment you stop scrolling.
-         * Plotly.update() applies the trace data and the layout in one pass,
-         * so the re-pack costs a single redraw. The trace-update arrays are
-         * positional: element 0 goes to lineTrace, element 1 to labelTrace. */
+        /* One Plotly.update(), not chained restyle/relayout calls: each call
+         * repaints the whole figure, so one pass means one redraw. The
+         * trace-update arrays are positional: 0 = lineTrace, 1 = labelTrace. */
         Plotly.update(gd,
                       {x: [lx, tx], y: [ly, ty], text: [lt, tt]},
                       {shapes: shapes, annotations: ann},
                       [P.idx.lineTrace, P.idx.labelTrace])
           .then(function () {
             busy = false;
-            /* A genuine relayout can arrive while this apply() was in flight;
-             * a dense locus still takes long enough that a dragmode="pan"
-             * user can pan again before it settles. Re-run once more against
-             * the now-current range instead of leaving the panel packed for
-             * the stale window.
-             *
-             * This does not risk an infinite loop. Measured: Plotly.update()
-             * emits no 'plotly_relayout' at all, unlike the Plotly.relayout()
-             * call it replaced, so the self-triggered event that isSelfUpdate()
-             * was written to filter no longer reaches the listener on this
-             * path, and `pending` can only be set by a real user-driven event.
-             * isSelfUpdate() is kept as a guard rather than removed: it costs
-             * nothing and still covers the case where a future plotly.js
-             * starts emitting one. */
+            /* A genuine relayout can arrive while apply() was in flight;
+             * re-run against the now-current range rather than leaving the
+             * panel packed for a stale window. No loop risk: Plotly.update()
+             * emits no 'plotly_relayout', so `pending` is only ever set by a
+             * real user event. */
             if (pending) { pending = false; schedule(); }
           })
           .catch(function (err) { busy = false; fail(err); });
@@ -310,37 +255,17 @@
 
       gd.on('plotly_relayout', function (upd) {
         if (dead) return;
-        /* Structural loop-breaker for the self-triggering update described
-         * above isSelfUpdate()'s definition: without this, our own
-         * Plotly.relayout({shapes, annotations}) call would re-enter here
-         * via `pending`/schedule() and run forever. */
         if (isSelfUpdate(upd)) return;
         if (busy) { pending = true; return; }
         schedule();
       });
 
-      /* Re-pack once, now, on the initial render.
-       *
-       * R packs the track with a device-based heuristic: cex.width in
-       * genetrack_ly() is derived from par("pin")[1], the width of the
-       * default graphics device, which has no relationship to the browser
-       * the widget ends up in. The result is close enough to look plausible
-       * but is not the packing LZR.layout() produces from real canvas text
-       * metrics - 46 labels vs 48 on a dense locus. So the widget used to
-       * arrive packed one way and silently reorganise into another the
-       * moment anything fired a relayout, which could be a plain pan. Which
-       * genes get dropped past cfg.maxrows differed between the two.
-       *
-       * Reconciling here means every paint of a given window agrees. It also
-       * closes the gap where the "N genes not shown" annotation could not
-       * appear until the user had interacted, since it is only ever added
-       * inside apply().
-       *
-       * apply() needs a laid-out axis and returns early without one. Inside a
-       * hidden tab or a display:none ancestor there is no layout yet and
-       * requestAnimationFrame does not fire, so bound the retries and give up
-       * quietly: the relayout listener above will correct the packing as soon
-       * as the container is shown and plotly resizes it. */
+      /* Re-pack once on the initial render: R packs against a device-based
+       * width heuristic, not real canvas text metrics, so without this the
+       * widget arrives packed one way and silently reorganises on the first
+       * relayout. Inside a hidden container there is no laid-out axis yet
+       * and requestAnimationFrame does not fire, so bound the retries; the
+       * relayout listener corrects the packing once the container shows. */
       var packTries = 0;
       var initialPack = function () {
         if (dead) return;

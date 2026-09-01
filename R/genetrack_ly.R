@@ -111,31 +111,11 @@ genetrack_ly <- function(locus,
   cex.width <- cex.text * par("pin")[1] * 80 / (width - 250)
   TX <- mapRow(TX, xlim = xrange, cex.text = cex.width, blanks = blanks,
                prioritise = prioritise)
-  # KNOWN LIMITATION (comment only, not fixed here): both `maxrows` (once
-  # resolved below) and the y-axis range pin a few lines further down are
-  # derived from a pack computed against the `width` ARGUMENT via
-  # cex.width, not against the widget's actual rendered width. par("pin")[1]
-  # cancels out of that calculation, so the effective packing width is
-  # diff(xlim)/(width - 250) regardless of how wide the container really
-  # is. If the widget is rendered narrower than `width` implies (RStudio
-  # Viewer pane, a narrow Rmd/Quarto column, a phone), R may pack fewer
-  # rows than the true width needs, e.g. 3. `maxrows` becomes 3 and the y
-  # range is pinned to 3 rows client-side. The JS re-layout, by contrast,
-  # measures against the real ax._length. So the very first relayout event
-  # — which can be a plain PAN, not even a zoom — re-packs against the true
-  # narrow axis, needs e.g. 4 rows, and silently drops a gene with "N genes
-  # not shown" even though nothing the user did should have hidden it.
-  # Fixing this requires moving the maxrows cap and the y-range pin to be
-  # computed together (both from the same width source), or having the JS
-  # include yaxis.range in its Plotly.relayout call so the pin can move.
+  # Known limitation: the resolved maxrows and the y-range pin below derive
+  # from a pack against the `width` argument, while the JS re-pack measures
+  # the real rendered axis - a widget rendered narrower than `width` can
+  # drop a gene on its first relayout.
   maxrows <- if (is.null(maxrows)) max(TX$row) else min(c(max(TX$row), maxrows))
-  # This message() is the ONLY truncation signal available on the INITIAL
-  # render: the on-plot "N genes not shown" annotation is added client-side
-  # by inst/js/genetrack-relayout.js, and that code path only runs inside
-  # apply(), which only fires on a 'plotly_relayout' event — it cannot run
-  # before the widget has been interacted with at least once. See the
-  # matching comment at the truncation-annotation branch in
-  # inst/js/genetrack-relayout.js for the JS side of this.
   if (max(TX$row) > maxrows) message(max(TX$row), " tracks needed to show all genes")
   # The browser re-packs against the viewport, so it must see genes that
   # maxrows hides at full zoom — those are exactly the ones zooming reveals.
@@ -216,10 +196,8 @@ genetrack_ly <- function(locus,
                                               "autoScale2d", "resetScale2d",
                                               "hoverClosest", "hoverCompare"))
 
-  # Applied conditionally, not as a plain `scrollZoom = scrollZoom` argument
-  # above: setting the key even to FALSE makes this config differ from
-  # scatter_plotly()'s, and plotly::subplot() then warns "Can only have one:
-  # config" for every locus_plotly() call.
+  # Conditional: setting the key even to FALSE makes this config differ from
+  # scatter_plotly()'s, and subplot() then warns "Can only have one: config".
   if (scrollZoom) p <- plotly::config(p, scrollZoom = TRUE)
 
   # Carried so locus_plotly() can build the payload after subplot() without
@@ -229,14 +207,9 @@ genetrack_ly <- function(locus,
   attr(p, "genetrack_data") <- list(TX = TX_all, EX = EX_all, cfg = cfg)
 
   if (!dynamic) return(p)
-  # add_genetrack_relayout() is fail-closed on the JS side (LZR.attach warns
-  # and leaves the widget as-is on any runtime error) but not on the R side:
-  # resolve_genetrack_idx() calls stop() if it can't locate the gene track
-  # traces/shapes, and system.file() returning "" would make readLines()
-  # error. Since dynamic = TRUE is the default, an uncaught failure here
-  # would turn a previously-working genetrack_ly(loc) call into a hard
-  # error instead of degrading to the static plot. Match the JS behaviour:
-  # warn and fall back to the static object `p`.
+  # add_genetrack_relayout() can stop() R-side; since dynamic = TRUE is the
+  # default, degrade to the static plot rather than turning a working
+  # genetrack_ly(loc) call into a hard error.
   tryCatch(
     add_genetrack_relayout(p, TX_all, EX_all, cfg),
     error = function(e) {

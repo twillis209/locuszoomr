@@ -92,26 +92,10 @@ zoom <- function(data, ens_db,
                  data2 = NULL,
                  trait_names = NULL,
                  AnnotationDb = "org.Hs.eg.db") {
-  # Captured before `data` is reassigned below: once a formal's binding is
-  # overwritten, substitute() returns the current value rather than the
-  # caller's expression, which would deparse the entire dataset.
-  #
-  # Only a bare symbol is kept, and deparse() is never reached for anything
-  # else. Two failure modes both follow from deparsing whatever arrives:
-  #
-  #  - do.call(zoom, list(data = big_df, ...)) without quote = TRUE splices
-  #    the VALUE into the call, so substitute() hands back the data frame
-  #    itself and deparse() serialises every row. A 50,000 row frame gives a
-  #    12,505-element character vector; on a 21M row GWAS it is a
-  #    multi-second stall on every call, single-trait ones included.
-  #  - deparse() returns a VECTOR, so c() flattens the two results together.
-  #    Once trait 1's expression needs more than one line (~60 chars),
-  #    trait_expr[2] is a continuation line of trait 1 rather than trait 2's
-  #    expression at all.
-  #
-  # Labels only ever want a plain short name, so bound the capture rather
-  # than the string: anything else becomes "", which trait_labels() sends to
-  # the positional fallback.
+  # Captured before `data` is reassigned below, or substitute() would return
+  # the value rather than the caller's expression. Bare symbols only: under
+  # do.call() the "expression" can be the data frame itself, and deparsing
+  # that serialises every row.
   sym <- function(e) if (is.name(e)) as.character(e) else ""
   trait_expr <- c(sym(substitute(data)), sym(substitute(data2)))
   data <- data.frame(data)
@@ -121,25 +105,15 @@ zoom <- function(data, ens_db,
   pos <- dc$pos
   p <- dc$p
   labs <- dc$labs
-  # Resolved before any of the single-trait setup below, so a mismatched
-  # second dataset fails now rather than as an empty panel later.
+  # Checked at startup so a mismatched second dataset fails now rather than
+  # as an empty panel later. add_hover is forwarded to both panels, hence
+  # its columns must exist in data2 too.
   trait_lab <- trait_labels(trait_names, trait_expr[1], trait_expr[2])
   if (!is.null(data2)) {
     data2 <- data.frame(data2)
-    # add_hover is included because it is forwarded to BOTH panels:
-    # scatter_plotly() does data[, i] for each name, so a column present in
-    # `data` but not `data2` errors with "undefined columns selected" on the
-    # first render - the late failure this startup check exists to prevent.
     check_trait_cols(data2, c(chrom, pos, p, labs, add_hover), "data2")
     check_same_build(data, data2, pos, labs)
     if (!is.null(eqtl_gene) || !is.null(eqtl_beta)) {
-      # The two-trait panels share a single colour scheme sized for LD/
-      # default colouring (3 levels), not for one-colour-per-eQTL-gene.
-      # Rather than error, output$locus falls back to the default scheme
-      # for both panels when data2 is set - so warn instead of silently
-      # dropping the requested eQTL colouring. `eqtl_beta`'s up/down
-      # triangles go the same way: compose_locus_plotly() is not passed
-      # `beta` either.
       warning("eQTL colouring and beta-direction markers are disabled when ",
               "data2 is supplied: the two trait panels share one colour ",
               "scheme, so `eqtl_gene`/`eqtl_beta` are ignored", call. = FALSE)
@@ -152,10 +126,8 @@ zoom <- function(data, ens_db,
   }
   
   message("Generating Manhattan plot")
-  # Union, not trait 1's alone: output$locus gates on `coords$chr %in%
-  # chr_set`, so a chromosome present only in trait 2 would make clicking
-  # its own manhattan do nothing at all. Trait 1 simply renders empty there,
-  # which is honest and already handled.
+  # Union: output$locus gates on chr_set, and a chromosome present only in
+  # trait 2 must still be navigable from its own manhattan.
   chr_set <- unique(data[, chrom])
   if (!is.null(data2)) chr_set <- union(chr_set, unique(data2[, chrom]))
   if (is.character(ens_db)) {
@@ -189,8 +161,7 @@ zoom <- function(data, ens_db,
   # apply min_p_snp to data for manhat?
   # smallest floating point
   data[which(data[, p] < 5e-324), p] <- 5e-324
-  # The sorted copy replaces `data` (keeping both would double the memory);
-  # nothing downstream depends on row order. See R/zoom_index.R.
+  # The sorted copy replaces `data`; nothing downstream depends on row order.
   data_idx <- build_locus_index(data, chrom, pos)
   data <- data_idx$data
   manhat <- manhattan(data, chrom, pos, p, labs, pcutoff = pcutoff,
@@ -198,10 +169,7 @@ zoom <- function(data, ens_db,
   yrange <- range(manhat$data$logP, na.rm = TRUE)
   ymax <- yrange[2] + diff(yrange) * 0.05
 
-  # Second genome-wide manhattan, so both traits can be scanned for
-  # coinciding peaks before drilling in. Thinned independently: each trait's
-  # own top mh_points SNPs are the interesting ones, and thinning trait 2 by
-  # trait 1's selection would hide exactly the signals that differ.
+  # Second genome-wide manhattan, thinned independently of the first.
   manhat2 <- NULL
   data2_idx <- NULL
   if (!is.null(data2)) {
@@ -237,11 +205,8 @@ zoom <- function(data, ens_db,
       tabPanel("Plot",
                fluidRow(
                  column(11,
-                        # 300px for one trait; 220 each for two. Two full
-                        # height strips would put 600px of manhattan above a
-                        # locus panel that is itself 850px in two-trait mode,
-                        # so the thing you navigated to would start below the
-                        # fold. 220px still reads at genome scale.
+                        # 220px each for two strips, keeping the locus panel
+                        # above the fold
                         withSpinner(
                           plotlyOutput("manhattan", width = "85vw",
                                        height = if (is.null(data2)) "300px" else "220px"),
@@ -255,9 +220,6 @@ zoom <- function(data, ens_db,
                  ),
                  column(1,
                         br(),
-                        # One pair of buttons drives both strips - the point
-                        # of stacking them is to read them together, so
-                        # zooming one and not the other would defeat it.
                         actionButton("m_zoomin", NULL, icon = icon("magnifying-glass-plus")),
                         actionButton("m_zoomout", NULL, icon = icon("magnifying-glass-minus"))
                  )),
@@ -282,9 +244,8 @@ zoom <- function(data, ens_db,
                         ),
                  column(3,
                         textOutput("pos"),
-                        # LD lives behind the gear, so surface the pinned
-                        # reference variant here: otherwise the colouring
-                        # changes meaning with no visible reason why.
+                        # the pinned LD reference, surfaced so the colouring
+                        # never changes meaning without a visible reason
                         textOutput("ld_status"),
                         align = "centre", style='margin-top:7px;'),
                  column(4,
@@ -297,20 +258,11 @@ zoom <- function(data, ens_db,
                         )),
                  column(1,
                         dropdown(
-                          # Always offered now. With `recomb` supplied the
-                          # rates come from that object; without it
-                          # link_recomb() queries the UCSC REST API per
-                          # window, which costs about 0.2s and is memoised.
-                          # Defaulted on only for supplied data, since that
-                          # is free and was the previous behaviour, and off
-                          # for the API so nothing goes over the network
+                          # Without `recomb`, rates come from the UCSC REST
+                          # API; default off so nothing goes over the network
                           # unasked.
                           checkboxInput("recomb", "show recombination rate",
                                         value = !is.null(recomb)),
-                          # LD is an on-demand action, not a setting: each new
-                          # reference variant costs an LDlink API call. Hidden
-                          # without a token, and in eQTL mode, where the `ld`
-                          # column would override the per-gene colours.
                           (if (show_ld) {
                             list(h5("Linkage disequilibrium"),
                                  actionButton("ld_get", "Get LD",
@@ -331,12 +283,8 @@ zoom <- function(data, ens_db,
                  ),
                  fluidRow(
                    column(12,
-                          # Taller with two traits: the gene track's share of
-                          # the figure drops from 0.4 to 0.3 there, so at 600px
-                          # its 12 rows would get ~15px each, below what the
-                          # 9.8px labels need. 850px restores ~255px of gene
-                          # track and still leaves ~300px per scatter panel.
-                          # Single-trait geometry is unchanged.
+                          # Taller with two traits, so the gene track's
+                          # smaller share still fits 12 rows of labels.
                           plotlyOutput("locus", width = "95vw",
                                        height = if (is.null(data2)) 600 else 850),
                           br(), br()
@@ -355,8 +303,7 @@ zoom <- function(data, ens_db,
     output$manhattan <- renderPlotly({
       p <- plotly_manhattan(manhat, labs, pcutline = NULL) %>%
         config(displayModeBar = FALSE)
-      # Name the strip only when there are two, so the single-trait plot is
-      # untouched.
+      # name the strip only when there are two
       if (!is.null(data2)) {
         p <- p %>% layout(yaxis = list(title = paste0(trait_lab[1],
                                                       "  -log<sub>10</sub> P")))
@@ -366,8 +313,7 @@ zoom <- function(data, ens_db,
 
     output$manhattan2 <- renderPlotly({
       req(!is.null(manhat2))
-      # Distinct source, so the click handler below can tell which trait was
-      # clicked and look the SNP up in the right dataset.
+      # distinct source, so the click handler can look up the right dataset
       plotly_manhattan(manhat2, labs, pcutline = NULL,
                        source = "plotly_manh2") %>%
         layout(yaxis = list(title = paste0(trait_lab[2],
@@ -422,17 +368,14 @@ zoom <- function(data, ens_db,
         config(displayModeBar = FALSE)
     })
     
-    # `coords` is the window locus() was called for, i.e. the data currently
-    # loaded, and is what output$locus depends on. `view` is the window
-    # actually on screen, which drifts away from `coords` whenever the user
-    # zooms or pans inside the loaded data. Keeping them apart is what stops a
-    # scroll gesture from triggering a re-render that redraws the same points
-    # in place; see the relayout observer below.
+    # `coords` is the window locus() was called for (the data loaded);
+    # `view` is the window on screen. Keeping them apart is what stops a
+    # scroll gesture triggering a re-render of the same points in place;
+    # see the relayout observer below.
     coords <- reactiveValues(chr = NULL, xrange = NULL)
     view <- reactiveValues(chr = NULL, xrange = NULL)
 
-    # Jump somewhere new: the plot has to move, so the data window and the
-    # displayed window both change. Every navigation control goes through this.
+    # every navigation control goes through this
     goto <- function(chr, xr) {
       xr <- as.integer(xr)
       coords$chr <- chr
@@ -454,10 +397,8 @@ zoom <- function(data, ens_db,
       }
     })
 
-    # Clicking the second trait's strip navigates the same way. The lookup
-    # goes to data2, not data: a SNP can be present in one trait and absent
-    # from the other, and resolving trait 2's key against trait 1 would
-    # silently do nothing for exactly those SNPs.
+    # The lookup goes to data2: a SNP clicked on trait 2's strip may be
+    # absent from trait 1.
     observe({
       s <- event_data("plotly_click", source = "plotly_manh2")
       req(s, !is.null(data2))
@@ -476,18 +417,12 @@ zoom <- function(data, ens_db,
       }
     })
     
-    # zoom manhattan y axis
-    #
-    # One pair of buttons drives both strips, but each keeps its OWN limit
-    # and its own full range: two GWAS routinely differ by an order of
-    # magnitude in power, so forcing a shared scale would flatten the weaker
-    # trait to nothing. What is shared is the gesture, not the axis.
+    # zoom manhattan y axis. One pair of buttons drives both strips, but
+    # each keeps its own limit: a shared scale would flatten the weaker
+    # trait to nothing.
     m_ylim <- reactiveValues(max = yrange[2],
                              max2 = if (is.null(data2)) NULL else yrange2[2])
 
-    # Push a y range to one strip. Factored out because there are now four
-    # combinations of (zoom in, zoom out) x (trait 1, trait 2) and they
-    # differ only in which limit and which output they touch.
     m_relayout <- function(id, lo, hi, title) {
       yr <- c(lo, hi)
       yr <- yr + diff(yr) * c(-0.05, 0.05)
@@ -553,14 +488,11 @@ zoom <- function(data, ens_db,
     
     genes <- reactiveValues(x = NULL)
 
-    # The pinned LD reference variant, NULL when LD is off. Pinning rather than
-    # following loc1$index_snp matters twice over: locus() recomputes the index
-    # SNP for every window, so an unpinned reference would silently re-base the
-    # colouring on a pan, and holding it fixed keeps link_LD()'s arguments
-    # identical, so mem_LDproxy serves later windows from cache instead of
-    # hitting the API again.
+    # The pinned LD reference variant, NULL when LD is off. Pinned rather
+    # than following loc1$index_snp, which locus() recomputes per window:
+    # an unpinned reference would silently re-base the colouring on a pan.
     ld_snp <- reactiveVal(NULL)
-    # Published out of the render so the "Get LD" button knows what to pin.
+    # published out of the render so "Get LD" knows what to pin
     cur_index <- reactiveVal(NULL)
 
     output$locus <- renderPlotly({
@@ -575,10 +507,8 @@ zoom <- function(data, ens_db,
       validate(need(loc1$data, "Locus contains no SNPs/datapoints"))
       validate(need(nrow(loc1$data) < 1.5e5, "Too many datapoints. Zoom in."))
       if (isTRUE(input$recomb)) {
-        # recomb = NULL sends link_recomb() to the UCSC REST API for this
-        # window. It returns the locus with $recomb left NULL on failure
-        # rather than aborting, so the plot simply loses the track - which
-        # would look like the checkbox does nothing, hence the notice.
+        # link_recomb() leaves $recomb NULL on failure rather than aborting,
+        # which would look like the checkbox does nothing - hence the notice.
         loc1 <- link_recomb(loc1, recomb = recomb)
         if (is.null(loc1$recomb)) {
           showNotification("No recombination data for this region",
@@ -587,19 +517,13 @@ zoom <- function(data, ens_db,
       }
       isolate(cur_index(loc1$index_snp))
 
-      # LD, when a reference variant has been pinned. link_LD() keys off
-      # loc$index_snp, so override it rather than letting this window's own
-      # index SNP take over. scatter_plotly() picks the colouring up on its
-      # own once loc1$data has an `ld` column.
+      # LD, when a reference variant has been pinned: link_LD() keys off
+      # loc$index_snp, so override it with the pin.
       pin <- ld_snp()
       if (!is.null(pin)) {
         loc1$index_snp <- pin
-        # Capture rather than merely suppress link_LD's messages: when the API
-        # declines, its reason ("Variant is not in 1000G reference panel") is
-        # the actionable part, and would otherwise reach only the R console,
-        # which nobody driving a browser is watching. The handler has to wrap
-        # the call directly - a suppressMessages() inside would muffle each
-        # message before this outer handler ever saw it.
+        # Capture link_LD's messages: when the API declines, its reason is
+        # the actionable part and would otherwise reach only the R console.
         ld_msg <- NULL
         loc1 <- withCallingHandlers(
           link_LD(loc1, token = ld_token, pop = ld_pop),
@@ -610,12 +534,10 @@ zoom <- function(data, ens_db,
             }
             invokeRestart("muffleMessage")
           })
-        # The blocking API call is done by here, so drop the "fetching"
-        # notice whether it succeeded or not.
         removeNotification("ld_busy")
         if (!"ld" %in% colnames(loc1$data)) {
-          # link_LD returns the locus untouched when the lookup fails, which
-          # would otherwise look like the button did nothing at all.
+          # a failed lookup returns the locus untouched, which would look
+          # like the button did nothing
           showNotification(
             paste0("LD failed for ", pin,
                    if (is.null(ld_msg)) "" else paste0(" - ", ld_msg)),
@@ -623,8 +545,7 @@ zoom <- function(data, ens_db,
         }
       }
 
-      # Second trait, when supplied. Built from the same window, so it needs
-      # no separate navigation state.
+      # second trait: same window, so no separate navigation state
       loc2 <- NULL
       if (!is.null(data2)) {
         loc2 <- try(locus(data = locus_subset(data2_idx, pos, coords$chr,
@@ -635,13 +556,8 @@ zoom <- function(data, ens_db,
                     silent = TRUE)
         if (inherits(loc2, "try-error") || is.null(loc2$data)) {
           loc2 <- NULL
-          # Falling back to the single-trait layout silently would make
-          # "trait 2 has no data here" indistinguishable from "trait 2 has
-          # no signal here" - the exact discrimination the second panel
-          # exists to support. The single-panel fallback stays (an empty
-          # plotly panel reads worse than none), but say why it happened.
-          # try(silent = TRUE) also routes genuine locus() failures here, so
-          # the wording covers both.
+          # Fall back to one panel, but say why: silently, "no data here"
+          # would be indistinguishable from "no signal here".
           showNotification(
             paste0(trait_lab[2], " has no datapoints in this window; ",
                    "showing ", trait_lab[1], " only"),
@@ -650,43 +566,30 @@ zoom <- function(data, ens_db,
           validate(need(nrow(loc2$data) < 1.5e5,
                         paste0("Too many datapoints in ", trait_lab[2],
                                ". Zoom in.")))
-          # Recombination on the second panel too. The rate is a property of
-          # the locus rather than of either trait, so this is the same line
-          # drawn twice - but reading a peak against the rate is much easier
-          # when the line sits in the panel you are looking at than when it
-          # is one panel away. Costs nothing: link_recomb() memoises on
-          # (genome, xrange, seqname, table), and both loci share all four,
-          # so trait 2 is served from the cache trait 1 just populated.
+          # Same line drawn on both panels; served from the memoise cache
+          # trait 1 just populated.
           if (isTRUE(input$recomb)) {
             loc2 <- link_recomb(loc2, recomb = recomb)
           }
         }
       }
-      # One pinned reference colours both panels: link_LD() already ran
-      # against trait 1 above, so this is a match() rather than a second
-      # API call.
+      # One pinned reference colours both panels: a match() on trait 1's
+      # result, not a second API call.
       if (!is.null(loc2) && "ld" %in% colnames(loc1$data)) {
         ld_ref <- data.frame(snp = loc1$data[, labs],
                              ld = loc1$data$ld,
                              stringsAsFactors = FALSE)
         ld_ref <- ld_ref[!is.na(ld_ref$ld), ]
         loc2 <- join_ld(loc2, ld_ref, labs)
-        # Panel 2 gets the same reference variant marked, not its own
-        # lowest-p SNP: scatter_plotly() draws index_snp in a distinct
-        # "index" style, and marking a variant that is not the LD reference
-        # would contradict the colouring the panel is showing. Only on the
-        # LD path - without LD, trait 2's own index SNP is the right mark.
-        # `pin` can still be NULL here if the caller's own data happened to
-        # carry an `ld` column, hence the guard.
+        # Mark the LD reference on panel 2 too, not its own lowest-p SNP,
+        # which would contradict the colouring. `pin` can be NULL when the
+        # caller's own data carried an `ld` column, hence the guard.
         if (!is.null(pin)) loc2$index_snp <- pin
       }
 
       loc1$TX$fullname <- expandGenes(loc1$TX, fullnames)
 
       # req(nrow(loc1$data) > 0)
-      # This block used to also count traces, to tell plotlyProxy() which ones
-      # held the gene track. That proxy path is gone (see below), so only the
-      # eQTL values consumed further down survive.
       if (!is.null(eqtl_gene) | !is.null(eqtl_beta)) {
         ind <- loc1$data[, p] < pcutoff
         eqtls <- loc1$data[ind, eqtl_gene]
@@ -706,33 +609,21 @@ zoom <- function(data, ens_db,
       } else locscheme <- c('grey', 'dodgerblue', 'red')
       
       isolate(width <- loc_width())
-      # NOT isolated: the gene track is re-packed client-side by
-      # inst/js/genetrack-relayout.js against a payload captured when the
-      # widget is built, so changing the biotype filter has to rebuild the
-      # widget to give the browser a fresh gene set. Pushing new genes in via
-      # plotlyProxy() instead would leave that payload stale, and the next
-      # zoom/pan would silently re-pack the pre-filter genes back in.
+      # NOT isolated: the JS re-pack works from a payload captured at build
+      # time, so a biotype change must rebuild the widget to hand the
+      # browser a fresh gene set.
       biotype <- input_biotype()
-      # maxrows: locus_plotly() defaults to 8, which drops a lot of genes on a
-      # dense locus - a 1 Mb window round IRF5 needs 14 rows at this width, and
-      # 21 in a narrow viewport. 12 rows needs roughly 19px each to stay clear
-      # of the 9.8px labels, and both paths are sized to give it: single trait
-      # is 0.4 * 600px = 240px, two traits 0.3 * 850px = 255px (the 850 comes
-      # from the conditional height on plotlyOutput("locus") above, which
-      # exists for exactly this reason - 0.3 * 600 would be ~15px a row).
-      # Much above 12 and the labels start colliding with the row above.
+      # maxrows = 12, not locus_plotly()'s default 8, which drops genes on a
+      # dense locus; the panel heights are sized to fit 12 rows of labels.
       if (is.null(loc2)) {
         locus_plotly(loc1, filter_gene_biotype = biotype, pcutoff = pcutoff,
                      width = width, eqtl_gene = eqtl_gene, beta = eqtl_beta,
                      add_hover = add_hover, scheme = locscheme, maxrows = 12,
                      dynamic = TRUE, scrollZoom = TRUE)
       } else {
-        # locscheme is sized for eQTL colouring (1 grey + one colour per
-        # eQTL gene significant in this window, a per-window count unrelated
-        # to 3). eqtl_gene is deliberately not forwarded to
-        # compose_locus_plotly(), so its panels always use scatter_plotly()'s
-        # default branch, which requires exactly the 3-tuple below -
-        # anything else makes its factor(levels = scheme) call error.
+        # eqtl_gene is not forwarded (see the startup warning), so the
+        # panels use scatter_plotly()'s default branch, which needs exactly
+        # this 3-colour scheme.
         compose_locus_plotly(list(loc1, loc2), ylabs = trait_lab,
                              filter_gene_biotype = biotype, pcutoff = pcutoff,
                              width = width, maxrows = 12,
@@ -756,9 +647,7 @@ zoom <- function(data, ens_db,
     
     outputOptions(output, "ui_genes", suspendWhenHidden = FALSE)
     
-    # Nav buttons step relative to the window on screen, not the loaded one:
-    # after a scroll-zoom those differ, and panning should move by what the
-    # user can see.
+    # Nav buttons step relative to the window on screen, not the loaded one.
     observeEvent(input$left2, {
       req(view$xrange)
       dif <- diff(view$xrange)
@@ -802,9 +691,8 @@ zoom <- function(data, ens_db,
     })
 
     # Pin the current window's index SNP and let output$locus do the fetch.
-    # The first call blocks for several seconds on the LDlink API, so say so:
-    # the notification is put up here, before the render is invalidated, and
-    # torn down by the observer below once the new plot has been sent.
+    # The notification goes up before the render is invalidated and comes
+    # down in the render once the blocking API call returns.
     observeEvent(input$ld_get, {
       snp <- cur_index()
       if (is.null(snp) || is.na(snp)) {
@@ -821,24 +709,11 @@ zoom <- function(data, ens_db,
       removeNotification("ld_busy")
     })
 
-    # Re-base LD onto a clicked point.
-    #
-    # Only while LD is already armed: unarmed, a stray click anywhere on the
-    # plot would silently cost a multi-second API call. Arming happens even
-    # when "Get LD" itself failed, which is what makes this usable at a locus
-    # whose index SNP is absent from 1000G - press Get LD, get the rejection,
-    # then click a common variant nearby.
-    #
-    # scatter_plotly() sets key = loc$labs on its point traces, so the clicked
-    # SNP arrives directly. The gene track and recombination traces share
-    # source = "plotly_locus" but set no key, so requiring one is what keeps a
-    # click on a gene line from being taken as a reference variant.
-    #
-    # ld_snp() is read through isolate() so this observer depends only on the
-    # click. Reading it reactively would re-enter on every re-base, see the
-    # same stale event_data(), and only be stopped by the identical() guard
-    # below - workable, but relying on a value comparison to terminate a loop
-    # that never needs to start.
+    # Re-base LD onto a clicked point, but only while LD is already armed -
+    # unarmed, a stray click would silently cost a multi-second API call.
+    # Only scatter traces set `key`, so requiring one keeps a click on a
+    # gene line from being taken as a reference variant. ld_snp() is read
+    # through isolate() so this observer depends only on the click.
     observe({
       s <- event_data("plotly_click", source = "plotly_locus")
       req(s, !is.null(s$key))
@@ -855,9 +730,7 @@ zoom <- function(data, ens_db,
     output$ld_status <- renderText({
       snp <- ld_snp()
       if (is.null(snp)) return("")
-      # The hint earns its place: nothing else signals that the scatter is
-      # clickable, and re-basing is the only way past an index SNP that the
-      # reference panel does not contain.
+      # nothing else signals that the scatter is clickable
       paste0("LD: ", snp, " (", ld_pop, ") - click a point to re-base")
     })
     
@@ -865,13 +738,9 @@ zoom <- function(data, ens_db,
     observeEvent(c(input$text_go, input$enter), {
       req(input$tex)
       chr <- NULL
-      # Two cleaned forms, because they need different treatment. `tex` also
-      # strips "chr" so "chr7:1-2" parses, but that would maim a gene whose
-      # symbol contains it - CHRNA5 would become NA5 - so symbol and rsID
-      # lookups use `q`, which only trims surrounding whitespace. Matching
-      # those two branches against the raw input$tex, as they used to, meant a
-      # stray leading space made " IRF5" fall through every branch and return
-      # silently.
+      # Two cleaned forms: `tex` strips "chr" so "chr7:1-2" parses, which
+      # would maim a symbol like CHRNA5 - so gene and rsID lookups use `q`,
+      # trimmed only.
       q <- trimws(input$tex)
       tex <- gsub(" |chr", "", input$tex, ignore.case = TRUE)
       if (grepl(":", tex) && grepl("-", tex)) {
@@ -917,14 +786,8 @@ zoom <- function(data, ens_db,
       }
     })
     
-    # Table tab
-    #
-    # Scoped to the window on screen rather than the whole dataset. On a
-    # genome-wide GWAS `data` runs to tens of millions of rows: DT paginates
-    # server-side so it would not ship all of that to the browser, but it
-    # still sorts and filters the full frame on every interaction, and a table
-    # of the locus being looked at is the more useful object anyway.
-    # `view`, not `coords`: the table describes what is on screen.
+    # Table tab, scoped to the window on screen: DT sorts and filters its
+    # whole frame on every interaction, which at GWAS scale is untenable.
     output$table <- DT::renderDataTable({
       validate(need(!is.null(view$chr) && !is.null(view$xrange),
                     "Select a locus to see its datapoints."))
@@ -934,16 +797,10 @@ zoom <- function(data, ens_db,
       locus_table(d, coord_cols = c(chrom, pos))
     })
     
-    # detect change to x axis range
-    #
-    # Debounced because `scrollZoom = TRUE` turns one wheel gesture into a
-    # burst of relayout events, and each one landing here would trigger a full
-    # server round-trip: a fresh locus() call, a fresh ensembl query and a
-    # complete re-render of the widget. The client-side re-pack in
-    # inst/js/genetrack-relayout.js already redraws the gene track on every
-    # one of those events, so the interaction stays responsive while the wheel
-    # is turning; the server only needs to catch up once the user settles, to
-    # pull in SNPs and genes outside the window originally fetched.
+    # Detect change to x axis range. Debounced: a wheel gesture is a burst
+    # of relayout events, and each one landing here would cost a full
+    # locus() + ensembl round-trip. The JS re-pack keeps the gene track
+    # responsive in the meantime; the server catches up once, on settle.
     locus_relayout <- reactive({
       event_data("plotly_relayout", source = "plotly_locus")
     }) %>% debounce(500)
@@ -955,12 +812,9 @@ zoom <- function(data, ens_db,
       xr <- as.integer(c(s$`xaxis.range[0]`, s$`xaxis.range[1]`) * 1e6)
       view$chr <- coords$chr
       view$xrange <- xr
-      # Only go back to the server when the user has moved outside the data
-      # locus() already returned. Zooming in, or panning within it, needs
-      # nothing: plotly is already showing the right window client-side and the
-      # gene track has been re-packed in the browser, so a re-render would
-      # fetch the same rows again and redraw the same points in place - which
-      # is exactly the flicker at the end of a scroll gesture.
+      # Refetch only when the view leaves the loaded window; within it, a
+      # re-render would redraw the same points in place - the flicker at
+      # the end of a scroll gesture.
       if (needs_refetch(xr, coords$xrange)) coords$xrange <- xr
     })
     
@@ -970,17 +824,8 @@ zoom <- function(data, ens_db,
       loc_width(session$clientData$output_locus_width)
     })
     
-    # The gene track used to be re-packed here, server-side, by pushing fresh
-    # coordinates into the widget with plotlyProxy() whenever the plot width or
-    # the biotype filter changed. That job now belongs entirely to
-    # inst/js/genetrack-relayout.js, which re-packs in the browser on every
-    # zoom, pan and resize. Two writers to the same traces and shapes would
-    # race, and the browser would win with stale data: its gene payload is
-    # captured when the widget is built, so anything proxied in afterwards is
-    # discarded on the next re-pack. Width is handled client-side (the JS
-    # measures the real rendered axis length, which is more accurate than the
-    # `width` argument R packs against); biotype rebuilds the widget instead,
-    # see output$locus above.
+    # No server-side gene track observer here: the JS re-pack owns those
+    # traces, and a second writer via plotlyProxy() would race it and lose.
 
     # chrom highlight - tracks the window on screen, so it keeps up with
     # scroll-zooming even when no re-render happens
@@ -1043,18 +888,10 @@ manhattan <- function(data,
   }
   
   data$logP <- -log10(data[, p])
-  # p-values that underflowed to zero in the source get clamped to the
-  # smallest representable double before reaching here, and -log10 of that is
-  # 323.3. That is an artefact of the clamp, not a measurement, and a single
-  # such SNP sets the y axis for the entire plot: in a 21M row Alzheimer GWAS
-  # one clamped point stretched the axis to 323 while the largest real value
-  # was 114.5, so real signal occupied the bottom third of the panel.
-  #
-  # Peg them to the largest real value so the axis fits the data, and give
-  # them their own colour level so they still read as off-scale rather than as
-  # a genuine result equal to the strongest measured hit. Only `logP`, which
-  # exists solely for plotting, is touched - the p-value column keeps whatever
-  # the caller clamped it to.
+  # A p-value clamped to 5e-324 gives logP 323.3 - an artefact that sets
+  # the y axis for the whole plot. Peg such points to the largest measured
+  # value, in their own colour so they still read as off-scale. Only logP
+  # is touched.
   clamped <- !is.na(data[, p]) & data[, p] <= 5e-324
   real_max <- suppressWarnings(max(data$logP[!clamped], na.rm = TRUE))
   if (any(clamped) && is.finite(real_max)) {
@@ -1090,10 +927,8 @@ manhattan <- function(data,
     data$col[data[, p] < pcutoff] <- length(chromCols) + 1
     colScheme <- c(chromCols, sigCol)
   }
-  # Applied after the significance level, which it deliberately overrides: a
-  # clamped point is significant by definition, and the useful thing to convey
-  # is that its value is a floor rather than a measurement. `data` has been
-  # reordered above, so recompute rather than reusing the earlier vector.
+  # Overrides the significance colour. Recomputed: `data` was reordered
+  # above, so the earlier `clamped` vector no longer lines up.
   data$col[!is.na(data[, p]) & data[, p] <= 5e-324] <- length(chromCols) + 2L
   if (length(chrom_list) > 1) {
     xticks <- list(at = chrom_cumsum + 0.5 * (maxpos - minpos), 
@@ -1117,11 +952,8 @@ plotly_manhattan <- function(obj,
 
   df <- obj$data
   df$col <- as.factor(df$col)
-  # Appended rather than being part of `scheme` so that callers passing their
-  # own three colours, as the chromosome panel does, keep working unchanged
-  # and still get the extra level when clamped points are present. Levels are
-  # only ever present in the factor when manhattan() assigned them, so the
-  # subset below drops it again when there are none.
+  # Appended, so callers passing their own three colours keep working and
+  # still get the clamped level when it is present.
   scheme <- c(scheme, clampCol)
   scheme <- scheme[as.numeric(levels(df$col))]
   if (is.null(obj$xticks)) {

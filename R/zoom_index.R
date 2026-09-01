@@ -47,7 +47,7 @@ locus_rows <- function(idx, pos, seqname, xrange) {
   lo <- idx$index$first[hit]
   hi <- idx$index$last[hit]
   p <- idx$data[lo:hi, pos]
-  # findInterval() returns the count of values <= x, hence +1 on the left
+  # left.open: count of values < xrange[1], so +1 is the first index >= it
   i <- findInterval(xrange[1], p, left.open = TRUE) + 1L
   j <- findInterval(xrange[2], p)
   if (i > j) return(integer(0))
