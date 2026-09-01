@@ -65,7 +65,10 @@ check_same_build <- function(data, data2, pos, labs,
 #' @noRd
 trait_labels <- function(trait_names, expr1, expr2) {
   if (!is.null(trait_names)) {
-    return(rep_len(as.character(trait_names), 2L))
+    if (length(trait_names) != 2L) {
+      stop("`trait_names` must have length 2", call. = FALSE)
+    }
+    return(as.character(trait_names))
   }
   usable <- function(x) {
     length(x) == 1L && nchar(x) <= 20L && grepl("^[A-Za-z.][A-Za-z0-9._]*$", x)

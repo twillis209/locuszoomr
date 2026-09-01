@@ -628,8 +628,7 @@ zoom <- function(data, ens_db,
                              filter_gene_biotype = biotype, pcutoff = pcutoff,
                              width = width, maxrows = 12,
                              add_hover = add_hover,
-                             scheme = if (is.null(eqtl_gene)) locscheme
-                                      else c('grey', 'dodgerblue', 'red'),
+                             scheme = c('grey', 'dodgerblue', 'red'),
                              dynamic = TRUE, scrollZoom = TRUE)
       }
     })
@@ -699,6 +698,9 @@ zoom <- function(data, ens_db,
         showNotification("No index SNP in view", type = "warning")
         return()
       }
+      # Already pinned: setting a reactiveVal to an identical value does not
+      # invalidate, so no re-render would run to take this notice down again.
+      if (identical(snp, ld_snp())) return()
       showNotification(paste0("Fetching LD for ", snp, " (", ld_pop, ")"),
                        id = "ld_busy", duration = NULL)
       ld_snp(snp)

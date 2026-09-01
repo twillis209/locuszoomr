@@ -72,6 +72,11 @@ test_that("trait_labels prefers explicit names", {
                c("AD", "Dizziness"))
 })
 
+test_that("trait_labels rejects trait_names of the wrong length", {
+  expect_error(trait_labels("AD", "x", "y"), "length 2")
+  expect_error(trait_labels(c("a", "b", "c"), "x", "y"), "length 2")
+})
+
 test_that("trait_labels falls back to the deparsed argument names", {
   expect_equal(trait_labels(NULL, "ad", "dizzy"), c("ad", "dizzy"))
 })
